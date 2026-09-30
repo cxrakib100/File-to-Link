@@ -2,17 +2,17 @@ require('dotenv').config();
 const express = require('express');
 const { TelegramClient, Api } = require('telegram');
 const { StringSession } = require('telegram/sessions');
-const { NewMessage, CallbackQuery } = require('telegram/events');
+const { NewMessage } = require('telegram/events');
 const { Button } = require('telegram/tl/custom/button');
 
 const API_ID = Number(process.env.API_ID);
 const API_HASH = process.env.API_HASH;
 const BOT_TOKEN = process.env.BOT_TOKEN;
-const BIN_CHANNEL = process.env.BIN_CHANNEL; // আপনার প্রাইভেট স্টোরেজ চ্যানেল
+const BIN_CHANNEL = process.env.BIN_CHANNEL;
 const BASE_URL = (process.env.BASE_URL || '').replace(/\/$/, '');
 const PORT = process.env.PORT || 3000;
 
-const FORCE_CHANNEL = 'Mrincomeboss'; // আপনার চ্যানেল ইউজারনেম
+const FORCE_CHANNEL = 'Mrincomeboss';
 const FORCE_CHANNEL_URL = 'https://t.me/Mrincomeboss';
 
 if (!API_ID || !API_HASH || !BOT_TOKEN || !BIN_CHANNEL || !BASE_URL) {
@@ -25,8 +25,9 @@ const client = new TelegramClient(new StringSession(''), API_ID, API_HASH, {
 });
 
 const app = express();
+let botUsername = '';
 
-// ব্যবহারকারী চ্যানেলে জয়েন আছে কিনা তা যাচাই করার ফাংশন
+// ব্যবহারকারী চ্যানেলে জয়েন আছে কিনা যাচাই করার ফাংশন
 async function isUserJoined(userId) {
   try {
     const res = await client.invoke(
@@ -41,16 +42,20 @@ async function isUserJoined(userId) {
   }
 }
 
-// জয়েন না থাকলে যে মেসেজ ও বাটন পাঠানো হবে
+// চ্যানেলে জয়েন না থাকলে সুন্দর বাটন সহ মেসেজ পাঠানো
 async function sendJoinPrompt(chatId) {
+  const verifyUrl = botUsername 
+    ? `https://t.me/${botUsername}?start=verify`
+    : FORCE_CHANNEL_URL;
+
   const text = 
 `⚠️ **প্রবেশাধিকার সীমিত!**
 
-বটটি ব্যবহার করতে হলে আপনাকে অবশ্যই আমাদের অফিশিয়াল চ্যানেলে যুক্ত হতে হবে। নিচের বাটনে ক্লিক করে চ্যানেলে জয়েন করুন, তারপর **'🔄 জয়েন করেছি (Verify)'** বাটনে চাপ দিন।`;
+বটটি ব্যবহার করতে হলে আপনাকে অবশ্যই আমাদের অফিশিয়াল চ্যানেলে যুক্ত হতে হবে। নিচের **'📢 Join Our Channel'** বাটনে ক্লিক করে জয়েন করুন, তারপর **'🔄 ভেরিফাই করুন'** বাটনে চাপ দিন।`;
 
   const buttons = [
     [Button.url('📢 Join Our Channel', FORCE_CHANNEL_URL)],
-    [Button.inline('🔄 জয়েন করেছি (Verify)', Buffer.from('check_sub'))]
+    [Button.url('🔄 ভেরিফাই করুন (Check)', verifyUrl)]
   ];
 
   await client.sendMessage(chatId, {
@@ -60,10 +65,10 @@ async function sendJoinPrompt(chatId) {
   });
 }
 
-// ১. টেক্সট ও /start কমান্ড হ্যান্ডলার
+// ১. /start এবং টেক্সট মেসেজ হ্যান্ডলার
 client.addEventHandler(async (event) => {
   const message = event.message;
-  if (!message || message.media) return; // ফাইল আসলে অন্য হ্যান্ডলারে যাবে
+  if (!message || message.media) return;
 
   const text = message.text || '';
   const senderId = message.senderId;
@@ -87,34 +92,7 @@ client.addEventHandler(async (event) => {
   }
 }, new NewMessage({ incoming: true }));
 
-// ২. ইনলাইন বাটন ক্লিক (Verify Button) হ্যান্ডলার
-client.addEventHandler(async (event) => {
-  const data = event.data?.toString();
-
-  if (data === 'check_sub') {
-    const senderId = event.senderId;
-    const joined = await isUserJoined(senderId);
-
-    if (joined) {
-      await event.answer({ message: '✅ ভেরিফিকেশন সফল হয়েছে!', alert: false });
-      await event.edit({
-        message: 
-`🎉 **ধন্যবাদ! আপনি সফলভাবে চ্যানেলে যুক্ত হয়েছেন।**
-
-⚡ **File to Link সক্রিয় হয়েছে!**
-এখন আপনি যেকোনো ফাইল, পিডিএফ, অডিও, ভিডিও বা ছবি পাঠান—সরাসরি ডাউনলোড লিংক পেয়ে যাবেন।`,
-        parseMode: 'md',
-      });
-    } else {
-      await event.answer({ 
-        message: '❌ আপনি এখনো চ্যানেলে জয়েন করেননি! দয়া করে আগে চ্যানেলে জয়েন করুন।', 
-        alert: true 
-      });
-    }
-  }
-}, new CallbackQuery());
-
-// ৩. ফাইল, ভিডিও, ছবি আসলে হ্যান্ডল করার ইঞ্জিন
+// ২. ফাইল, ভিডিও, ছবি আসলে হ্যান্ডল করার ইঞ্জিন
 client.addEventHandler(async (event) => {
   const message = event.message;
   if (!message || !message.media) return;
@@ -122,14 +100,13 @@ client.addEventHandler(async (event) => {
   const senderId = message.senderId;
   const joined = await isUserJoined(senderId);
 
-  // চ্যানেলে জয়েন না থাকলে ফাইল প্রসেস করবে না
+  // চ্যানেলে জয়েন না থাকলে ফাইল তৈরি হবে না
   if (!joined) {
     await sendJoinPrompt(message.chatId);
     return;
   }
 
   try {
-    // স্টোরেজ চ্যানেলে ফাইল পাঠানো
     const sentMsg = await client.sendFile(BIN_CHANNEL, {
       file: message.media,
       caption: message.text || '',
@@ -172,7 +149,7 @@ client.addEventHandler(async (event) => {
   }
 }, new NewMessage({ incoming: true }));
 
-// ৪. ব্রাউজারে ডাউনলোড দেওয়ার রাউট
+// ৩. ব্রাউজারে ১-ক্লিক ডাউনলোড ইঞ্জিন
 app.get('/dl/:id/:filename', async (req, res) => {
   try {
     const msgId = Number(req.params.id);
@@ -241,15 +218,17 @@ app.get('/dl/:id/:filename', async (req, res) => {
 
 app.get('/', (req, res) => res.send('File-to-Link Server is Live!'));
 
-// সার্ভার যেন ঘুমিয়ে না পড়ে তার জন্য সেলফ-পিং
+// সার্ভার ঘুমিয়ে পড়া ঠেকাতে সেলফ-পিং
 setInterval(() => {
   if (BASE_URL) {
     fetch(BASE_URL).catch(() => {});
   }
-}, 8 * 60 * 1000); // প্রতি ৮ মিনিট পর পর পিং করবে
+}, 8 * 60 * 1000);
 
 app.listen(PORT, async () => {
   console.log(`Server listening on port ${PORT}`);
   await client.start({ botAuthToken: BOT_TOKEN });
-  console.log('বট সফলভাবে কানেক্ট হয়েছে!');
+  const me = await client.getMe();
+  botUsername = me.username;
+  console.log(`বট @${botUsername} সফলভাবে টেলিগ্রামে কানেক্ট হয়েছে!`);
 });
