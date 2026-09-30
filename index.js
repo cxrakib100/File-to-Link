@@ -2,14 +2,18 @@ require('dotenv').config();
 const express = require('express');
 const { TelegramClient, Api } = require('telegram');
 const { StringSession } = require('telegram/sessions');
-const { NewMessage } = require('telegram/events');
+const { NewMessage, CallbackQuery } = require('telegram/events');
+const { Button } = require('telegram/tl/custom/button');
 
 const API_ID = Number(process.env.API_ID);
 const API_HASH = process.env.API_HASH;
 const BOT_TOKEN = process.env.BOT_TOKEN;
-const BIN_CHANNEL = process.env.BIN_CHANNEL; // যেমন: -100xxxxxxxxxx
+const BIN_CHANNEL = process.env.BIN_CHANNEL; // আপনার প্রাইভেট স্টোরেজ চ্যানেল
 const BASE_URL = (process.env.BASE_URL || '').replace(/\/$/, '');
 const PORT = process.env.PORT || 3000;
+
+const FORCE_CHANNEL = 'Mrincomeboss'; // আপনার চ্যানেল ইউজারনেম
+const FORCE_CHANNEL_URL = 'https://t.me/Mrincomeboss';
 
 if (!API_ID || !API_HASH || !BOT_TOKEN || !BIN_CHANNEL || !BASE_URL) {
   console.error("Missing Environment Variables!");
@@ -22,19 +26,116 @@ const client = new TelegramClient(new StringSession(''), API_ID, API_HASH, {
 
 const app = express();
 
-// টেলিগ্রামে ফাইল, ছবি, ভিডিও বা ডকুমেন্ট আসলে
+// ব্যবহারকারী চ্যানেলে জয়েন আছে কিনা তা যাচাই করার ফাংশন
+async function isUserJoined(userId) {
+  try {
+    const res = await client.invoke(
+      new Api.channels.GetParticipant({
+        channel: FORCE_CHANNEL,
+        participant: userId,
+      })
+    );
+    return !!res;
+  } catch (err) {
+    return false;
+  }
+}
+
+// জয়েন না থাকলে যে মেসেজ ও বাটন পাঠানো হবে
+async function sendJoinPrompt(chatId) {
+  const text = 
+`⚠️ **প্রবেশাধিকার সীমিত!**
+
+বটটি ব্যবহার করতে হলে আপনাকে অবশ্যই আমাদের অফিশিয়াল চ্যানেলে যুক্ত হতে হবে। নিচের বাটনে ক্লিক করে চ্যানেলে জয়েন করুন, তারপর **'🔄 জয়েন করেছি (Verify)'** বাটনে চাপ দিন।`;
+
+  const buttons = [
+    [Button.url('📢 Join Our Channel', FORCE_CHANNEL_URL)],
+    [Button.inline('🔄 জয়েন করেছি (Verify)', Buffer.from('check_sub'))]
+  ];
+
+  await client.sendMessage(chatId, {
+    message: text,
+    buttons: buttons,
+    parseMode: 'md',
+  });
+}
+
+// ১. টেক্সট ও /start কমান্ড হ্যান্ডলার
+client.addEventHandler(async (event) => {
+  const message = event.message;
+  if (!message || message.media) return; // ফাইল আসলে অন্য হ্যান্ডলারে যাবে
+
+  const text = message.text || '';
+  const senderId = message.senderId;
+
+  if (text.startsWith('/start')) {
+    const joined = await isUserJoined(senderId);
+
+    if (!joined) {
+      await sendJoinPrompt(message.chatId);
+      return;
+    }
+
+    await message.reply({
+      message: 
+`🎉 **স্বাগতম! চ্যানেল ভেরিফিকেশন সফল হয়েছে।**
+
+⚡ **File to Link সার্ভিস এখন সম্পূর্ণ সক্রিয়!**
+আমাকে যেকোনো **ফাইল, পিডিএফ, ভিডিও বা ছবি (সর্বোচ্চ ১০০ এমবি)** পাঠান। আমি সাথে সাথে সেটির সরাসরি ১-ক্লিক ডাউনলোড লিংক তৈরি করে দেব।`,
+      parseMode: 'md',
+    });
+  }
+}, new NewMessage({ incoming: true }));
+
+// ২. ইনলাইন বাটন ক্লিক (Verify Button) হ্যান্ডলার
+client.addEventHandler(async (event) => {
+  const data = event.data?.toString();
+
+  if (data === 'check_sub') {
+    const senderId = event.senderId;
+    const joined = await isUserJoined(senderId);
+
+    if (joined) {
+      await event.answer({ message: '✅ ভেরিফিকেশন সফল হয়েছে!', alert: false });
+      await event.edit({
+        message: 
+`🎉 **ধন্যবাদ! আপনি সফলভাবে চ্যানেলে যুক্ত হয়েছেন।**
+
+⚡ **File to Link সক্রিয় হয়েছে!**
+এখন আপনি যেকোনো ফাইল, পিডিএফ, অডিও, ভিডিও বা ছবি পাঠান—সরাসরি ডাউনলোড লিংক পেয়ে যাবেন।`,
+        parseMode: 'md',
+      });
+    } else {
+      await event.answer({ 
+        message: '❌ আপনি এখনো চ্যানেলে জয়েন করেননি! দয়া করে আগে চ্যানেলে জয়েন করুন।', 
+        alert: true 
+      });
+    }
+  }
+}, new CallbackQuery());
+
+// ৩. ফাইল, ভিডিও, ছবি আসলে হ্যান্ডল করার ইঞ্জিন
 client.addEventHandler(async (event) => {
   const message = event.message;
   if (!message || !message.media) return;
 
+  const senderId = message.senderId;
+  const joined = await isUserJoined(senderId);
+
+  // চ্যানেলে জয়েন না থাকলে ফাইল প্রসেস করবে না
+  if (!joined) {
+    await sendJoinPrompt(message.chatId);
+    return;
+  }
+
   try {
-    // ফাইলটি স্টোরেজ চ্যানেলে পাঠানো (sendFile দিয়ে পাঠানো যাতে ১০০% আসল চ্যানেল মেসেজ আইডি পাওয়া যায়)
+    // স্টোরেজ চ্যানেলে ফাইল পাঠানো
     const sentMsg = await client.sendFile(BIN_CHANNEL, {
       file: message.media,
       caption: message.text || '',
     });
 
-    const channelMsgId = sentMsg.id; // ১০০% সঠিক চ্যানেল মেসেজ আইডি
+    const channelMsgId = sentMsg.id;
     let fileName = 'file.bin';
     let fileSize = 0;
     let fileType = 'ফাইল';
@@ -46,9 +147,9 @@ client.addEventHandler(async (event) => {
       if (attr) {
         fileName = attr.fileName;
       } else {
-        fileName = doc.mimeType === 'application/pdf' ? 'document.pdf' : 'file.bin';
+        fileName = doc.mimeType === 'application/pdf' ? 'document.pdf' : 'video.mp4';
       }
-      fileType = fileName.endsWith('.pdf') ? 'পিডিএফ (PDF)' : 'ডকুমেন্ট';
+      fileType = fileName.endsWith('.pdf') ? 'পিডিএফ (PDF)' : (fileName.endsWith('.mp4') ? 'ভিডিও (Video)' : 'ডকুমেন্ট');
     } else if (message.media.photo) {
       fileName = `photo_${Date.now()}.jpg`;
       fileType = 'ছবি (Photo)';
@@ -62,7 +163,7 @@ client.addEventHandler(async (event) => {
         `📄 **নাম:** ${fileName}\n` +
         (fileSize ? `📦 **সাইজ:** ${sizeMB} MB\n\n` : `\n`) +
         `📥 **সরাসরি ডাউনলোড লিংক (One-Click):**\n${downloadLink}\n\n` +
-        `💡 *লিংকে ক্লিক করলেই ব্রাউজারে ফাইলটি সরাসরি ডাউনলোড হওয়া শুরু হবে।*`,
+        `💡 *লিংকে ক্লিক করলেই ব্রাউজারে ফাইলটি সরাসরি নামা শুরু হবে।*`,
       parseMode: 'md',
     });
   } catch (err) {
@@ -71,13 +172,11 @@ client.addEventHandler(async (event) => {
   }
 }, new NewMessage({ incoming: true }));
 
-// ব্রাউজারে সরাসরি ১-ক্লিক ডাউনলোড ইঞ্জিন
+// ৪. ব্রাউজারে ডাউনলোড দেওয়ার রাউট
 app.get('/dl/:id/:filename', async (req, res) => {
   try {
     const msgId = Number(req.params.id);
-    if (!msgId || isNaN(msgId)) {
-      return res.status(400).send('ভুল লিংক আইডি!');
-    }
+    if (!msgId || isNaN(msgId)) return res.status(400).send('ভুল লিংক আইডি!');
 
     const messages = await client.getMessages(BIN_CHANNEL, { ids: [msgId] });
     if (!messages || messages.length === 0 || !messages[0]?.media) {
@@ -90,7 +189,6 @@ app.get('/dl/:id/:filename', async (req, res) => {
     let fileSize = doc ? Number(doc.size) : 0;
     let mimeType = doc?.mimeType || 'application/octet-stream';
 
-    // রেঞ্জ সাপোর্ট (১০০ এমবি ফাইলও যেন মোবাইলে দ্রুত ও বিরতিহীনভাবে ডাউনলোড হয়)
     const range = req.headers.range;
     const disposition = `attachment; filename="${encodeURIComponent(fileName)}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
 
@@ -142,6 +240,13 @@ app.get('/dl/:id/:filename', async (req, res) => {
 });
 
 app.get('/', (req, res) => res.send('File-to-Link Server is Live!'));
+
+// সার্ভার যেন ঘুমিয়ে না পড়ে তার জন্য সেলফ-পিং
+setInterval(() => {
+  if (BASE_URL) {
+    fetch(BASE_URL).catch(() => {});
+  }
+}, 8 * 60 * 1000); // প্রতি ৮ মিনিট পর পর পিং করবে
 
 app.listen(PORT, async () => {
   console.log(`Server listening on port ${PORT}`);
