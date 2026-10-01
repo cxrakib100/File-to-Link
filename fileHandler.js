@@ -4,42 +4,42 @@ const BASE_URL = (process.env.BASE_URL || '').replace(/\/$/, '');
 // ৫০০ মেগাবাইট সাইজ লিমিট
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
 
-// ১০০% লাইভ ভেরিফাইড শর্ট লিংক তৈরির ইঞ্জিন
+// কোনো বিজ্ঞাপন ছাড়া সরাসরি ১০০% ডিরেক্ট রিডাইরেক্ট শর্টনার ইঞ্জিন
 async function getVerifiedShortLink(longUrl) {
-  // ১. TinyURL ইঞ্জিন (বিজ্ঞাপন ছাড়া সরাসরি স্থায়ী রিডাইরেক্ট)
+  // ১. is.gd ইঞ্জিন (সম্পূর্ণ বিজ্ঞাপনহীন, সরাসরি ৩০১ রিডাইরেক্ট দিয়ে ডাউনলোড শুরু করে)
   try {
-    const res = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(longUrl)}`, {
+    const res = await fetch(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(longUrl)}`, {
       signal: AbortSignal.timeout(4000)
     });
     if (res.ok) {
       const short = (await res.text()).trim();
-      if (short.startsWith('https://')) return short;
+      if (short.startsWith('https://is.gd/')) return short;
     }
   } catch (e) {}
 
-  // ২. is.gd ইঞ্জিন (ব্যাকআপ ফাস্ট রিডাইরেক্ট)
+  // ২. clck.ru ইঞ্জিন (ব্যাকআপ নো-অ্যাড ডিরেক্ট রিডাইরেক্ট)
   try {
-    const res = await fetch(`https://is.gd/create.php?format=json&url=${encodeURIComponent(longUrl)}`, {
+    const res = await fetch(`https://clck.ru/--?url=${encodeURIComponent(longUrl)}`, {
       signal: AbortSignal.timeout(4000)
     });
     if (res.ok) {
-      const data = await res.json();
-      if (data.shorturl) return data.shorturl;
+      const short = (await res.text()).trim();
+      if (short.startsWith('https://clck.ru/')) return short;
     }
   } catch (e) {}
 
-  // ৩. da.gd ইঞ্জিন (৩য় ব্যাকআপ)
+  // ৩. da.gd ইঞ্জিন (৩য় নো-অ্যাড ব্যাকআপ)
   try {
     const res = await fetch(`https://da.gd/s?url=${encodeURIComponent(longUrl)}`, {
       signal: AbortSignal.timeout(4000)
     });
     if (res.ok) {
       const short = (await res.text()).trim();
-      if (short.startsWith('https://')) return short;
+      if (short.startsWith('https://da.gd/')) return short;
     }
   } catch (e) {}
 
-  return longUrl; // কোনো কারণে শর্টনার ডাউন থাকলে মেইন লিংক রিটার্ন করবে
+  return longUrl;
 }
 
 // ফাইল গ্রহণ করে লিংক তৈরি করা
@@ -71,14 +71,14 @@ async function processFileUpload(client, message) {
     if (fileSize > MAX_FILE_SIZE) {
       await message.reply({
         message: 
-`⚠️ **ফাইল সাইজ সীমা অতিক্রম করেছে!**
+`⚠️ <b>ফাইল সাইজ সীমা অতিক্রম করেছে!</b>
 ━━━━━━━━━━━━━━━━━━━━━━
-📦 **আপনার ফাইলের সাইজ:** ${sizeMB} MB
-🚫 **সর্বোচ্চ সীমা:** ৫০০.০০ MB
+📦 <b>আপনার ফাইলের সাইজ:</b> ${sizeMB} MB
+🚫 <b>সর্বোচ্চ সীমা:</b> ৫০০.০০ MB
 
-দুঃখিত! বটটিতে সর্বোচ্চ **৫০০ মেগাবাইট (500 MB)** পর্যন্ত ফাইল আপলোড করার অনুমতি রয়েছে। অনুগ্রহ করে ৫০০ এমবির চেয়ে ছোট ফাইল পাঠান।
+দুঃখিত! বটটিতে সর্বোচ্চ <b>৫০০ মেগাবাইট (500 MB)</b> পর্যন্ত ফাইল আপলোড করার অনুমতি রয়েছে। অনুগ্রহ করে ৫০০ এমবির চেয়ে ছোট ফাইল পাঠান।
 ━━━━━━━━━━━━━━━━━━━━━━`,
-        parseMode: 'md',
+        parseMode: 'html',
       });
       return;
     }
@@ -95,29 +95,33 @@ async function processFileUpload(client, message) {
       throw new Error('চ্যানেল মেসেজ আইডি পাওয়া যায়নি');
     }
 
-    // ব্র্যাকেট যুক্ত ফাইলের নাম যেন টেলিগ্রাম হাইপারলিংক না ভাঙে
-    const safeEncodedName = encodeURIComponent(fileName).replace(/\(/g, '%28').replace(/\)/g, '%29');
+    // ডাউনলোড লিংক তৈরি
+    const safeEncodedName = encodeURIComponent(fileName);
     const downloadLink = `${BASE_URL}/dl/${channelMsgId}/${safeEncodedName}`;
 
-    // ৩. লাইভ শর্ট লিংক তৈরি করা
+    // ৩. বিজ্ঞাপনহীন সরাসরি লাইভ শর্ট লিংক তৈরি করা
     const shortLink = await getVerifiedShortLink(downloadLink);
 
-    // আপনার কাঙ্ক্ষিত স্টাইলে মেসেজ ফরম্যাট
-    await message.reply({
-      message: 
-`✅ **${fileType} সফলভাবে আপলোড হয়েছে!**
+    // HTML ফরম্যাটিং যাতে হাইপারলিংক কখনো না ভাঙে
+    const responseHtml = 
+`✅ <b>${fileType} সফলভাবে আপলোড হয়েছে!</b>
 
-📄 **নাম:** ${fileName}
-${fileSize ? `📦 **সাইজ:** ${sizeMB} MB\n\n` : `\n`}
-📥 **সরাসরি ডাউনলোড লিংক (One-Click):**
-👉 [𝐃𝐎𝐖𝐍𝐋𝐎𝐀𝐃 ✅](${downloadLink})
+📄 <b>নাম:</b> ${fileName}
+📦 <b>সাইজ:</b> ${sizeMB} MB
 
-𝐒𝐡𝐨𝐫𝐭 𝐋𝐢𝐧𝐤~👇
+📥 <b>সরাসরি ডাউনলোড লিংক (One-Click):</b>
+👉 <a href="${downloadLink}"><b>[ 𝐃𝐎𝐖𝐍𝐋𝐎𝐀𝐃 ✅ ]</b></a>
+
+<b>𝐒𝐡𝐨𝐫𝐭 𝐋𝐢𝐧𝐤~👇</b>
 ${shortLink}
 
-💡 *লিংকে ক্লিক করলেই ব্রাউজারে ফাইলটি সরাসরি নামা শুরু হবে।*`,
-      parseMode: 'md',
+💡 <i>লিংকে ক্লিক করলেই ব্রাউজারে ফাইলটি সরাসরি নামা শুরু হবে।</i>`;
+
+    await message.reply({
+      message: responseHtml,
+      parseMode: 'html',
     });
+
   } catch (err) {
     console.error('File Upload error:', err);
     await message.reply({ message: '❌ ফাইল প্রসেস করতে সমস্যা হয়েছে। চ্যানেলে বট অ্যাডমিন আছে কিনা চেক করুন।' });
