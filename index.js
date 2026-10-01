@@ -4,7 +4,6 @@ const { TelegramClient } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 const { NewMessage } = require('telegram/events');
 
-// আলাদা করা মডিউলগুলো
 const { isUserJoined, sendJoinPrompt } = require('./forceSub');
 const { processFileUpload, setupDownloadRoute } = require('./fileHandler');
 const { handleYouTubeDownload } = require('./ytHandler');
@@ -21,7 +20,7 @@ let botUsername = '';
 
 const userModes = new Map();
 
-// আপনার পছন্দের স্টাইলিশ বোল্ড ফন্ট ও রঙের বাটন
+// স্ক্রিনশটের মতো গ্রিন ও রেড স্টাইলিশ বাটন
 async function sendColoredMenu(chatId, text) {
   try {
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
@@ -34,8 +33,8 @@ async function sendColoredMenu(chatId, text) {
         reply_markup: {
           keyboard: [
             [
-              { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "success" },          // 🟢 গ্রিন ও বোল্ড ফন্ট
-              { text: "𝐘𝐓 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝", style: "danger" }   // 🔴 লাল ও বোল্ড ফন্ট
+              { text: "File To Link", style: "success" },          // 🟢 গ্রিন বাটন
+              { text: "YouTube Video Download", style: "danger" }   // 🔴 লাল বাটন
             ]
           ],
           resize_keyboard: true
@@ -47,82 +46,78 @@ async function sendColoredMenu(chatId, text) {
   }
 }
 
-// টেক্সট ও বাটন ক্লিক হ্যান্ডলার
+// মূল মেসেজ হ্যান্ডলার
 client.addEventHandler(async (event) => {
   const message = event.message;
-  if (!message || message.media) return;
+  if (!message) return;
 
   const text = (message.text || '').trim();
   const senderId = message.senderId;
   const chatId = message.chatId;
 
-  // চ্যানেল ভেরিফিকেশন
+  // ১. চ্যানেল ভেরিফিকেশন চেক
   const joined = await isUserJoined(client, senderId);
   if (!joined) {
     await sendJoinPrompt(client, chatId, botUsername);
     return;
   }
 
-  // /start কমান্ড দিলে
+  // ২. /start কমান্ড
   if (text.startsWith('/start')) {
     userModes.set(String(senderId), 'file');
     await sendColoredMenu(
       chatId,
-      `🎉 **স্বাগতম! চ্যানেল ভেরিফিকেশন সফল হয়েছে।**\n\nনিচের মেনু থেকে প্রয়োজনীয় সার্ভিস সিলেক্ট করুন:\n\n🟢 **𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤:** ফাইল, ছবি, ভিডিও লিংকে রূপান্তর করতে।\n🔴 **𝐘𝐓 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝:** ইউটিউব ভিডিও ডাউনলোড করতে।`
+      `🎉 **স্বাগতম! চ্যানেল ভেরিফিকেশন সফল হয়েছে।**\n\nনিচের মেনু থেকে প্রয়োজনীয় সার্ভিস সিলেক্ট করুন:\n\n🟢 **File To Link:** ফাইল, ছবি, ভিডিও লিংকে রূপান্তর করতে।\n🔴 **YouTube Video Download:** ইউটিউব ভিডিও ডাউনলোড করতে।`
     );
     return;
   }
 
-  // বাটন ১: 𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤 (গ্রিন বাটন)
-  if (text === '𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤' || text === 'File To Link' || text === '/file') {
+  // ৩. বাটন হ্যান্ডলার
+  if (text === 'File To Link' || text === '📁 File To Link Generate' || text === '/file') {
     userModes.set(String(senderId), 'file');
     await sendColoredMenu(chatId, `🟢 **ফাইল টু লিংক মোড সক্রিয় হয়েছে!**\n\nএখন যেকোনো **ফাইল, পিডিএফ, ভিডিও বা ছবি (১০০ এমবি পর্যন্ত)** পাঠান। সরাসরি ১-ক্লিক ডাউনলোড লিংক তৈরি করে দেওয়া হবে।`);
     return;
   }
 
-  // বাটন ২: 𝐘𝐓 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝 (লাল বাটন)
-  if (text === '𝐘𝐓 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝' || text === 'YouTube Video Download' || text === '/yt') {
+  if (text === 'YouTube Video Download' || text === '▶️ YT Video Download' || text === '/yt') {
     userModes.set(String(senderId), 'yt');
-    await sendColoredMenu(chatId, `🔴 **ইউটিউব ডাউনলোড মোড সক্রিয় হয়েছে!**\n\nএখন আপনার কাঙ্ক্ষিত ইউটিউব ভিডিওর লিংক পাঠান।`);
+    await sendColoredMenu(chatId, `🔴 **ইউটিউব ডাউনলোড মোড সক্রিয় হয়েছে!**\n\nএখন আপনার কাঙ্ক্ষিত ইউটিউব ভিডিওর লিংক পাঠান। সরাসরি এই চ্যাটেই ভিডিও পাঠিয়ে দেওয়া হবে।`);
     return;
   }
 
-  // ইউটিউব ডাউনলোডার
-  const isYtHandled = await handleYouTubeDownload(client, chatId, text);
-  if (!isYtHandled) {
+  // ৪. ইউটিউব লিংক আসলে (লিংক প্রিভিউ থাকলেও যেন টেক্সট হিসেবে কাজ করে)
+  const isYouTubeLink = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)/.test(text);
+
+  if (isYouTubeLink) {
+    await handleYouTubeDownload(client, chatId, text);
+    return;
+  }
+
+  // ৫. ফাইল টু লিংক হ্যান্ডলার (ডকুমেন্ট, আসল ভিডিও ফাইল বা ছবি আসলে)
+  const hasRealFile = message.media && (message.media.document || message.media.photo);
+
+  if (hasRealFile) {
     const currentMode = userModes.get(String(senderId)) || 'file';
     if (currentMode === 'yt') {
-      await message.reply({ message: '⚠️ অনুগ্রহ করে সঠিক ইউটিউব লিংক পাঠান (যেমন: https://youtu.be/...)' });
-    } else {
-      await message.reply({ message: '💡 যেকোনো ফাইল সেন্ড করুন অথবা নিচের মেনু বাটন চাপুন।' });
+      await message.reply({ message: '⚠️ আপনি বর্তমানে **ইউটিউব মোডে** আছেন! ফাইল আপলোড করতে নিচের সবুজ **"File To Link"** বাটনে চাপ দিন।' });
+      return;
     }
-  }
-}, new NewMessage({ incoming: true }));
 
-// ফাইল আসলে হ্যান্ডল করা (File To Link)
-client.addEventHandler(async (event) => {
-  const message = event.message;
-  if (!message || !message.media) return;
-
-  const senderId = message.senderId;
-  const chatId = message.chatId;
-
-  const joined = await isUserJoined(client, senderId);
-  if (!joined) {
-    await sendJoinPrompt(client, chatId, botUsername);
+    // এটি শুধু চ্যানেলে ফরওয়ার্ড হবে এবং ডাউনলোড লিংক তৈরি হবে
+    await processFileUpload(client, message);
     return;
   }
 
+  // অন্য কোনো টেক্সট লিখলে
   const currentMode = userModes.get(String(senderId)) || 'file';
   if (currentMode === 'yt') {
-    await message.reply({ message: '⚠️ আপনি বর্তমানে **ইউটিউব মোডে** আছেন! ফাইল আপলোড করতে নিচের সবুজ **"𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤"** বাটনে চাপ দিন।' });
-    return;
+    await message.reply({ message: '⚠️ অনুগ্রহ করে একটি সঠিক ইউটিউব লিংক পাঠান (যেমন: https://youtu.be/...)' });
+  } else {
+    await message.reply({ message: '💡 যেকোনো ফাইল, পিডিএফ বা ভিডিও সেন্ড করুন অথবা নিচের মেনু বাটন চাপুন।' });
   }
-
-  await processFileUpload(client, message);
 }, new NewMessage({ incoming: true }));
 
-// ডাউনলোড রাউট সেটআপ
+// ডাউনলোড রাউট
 setupDownloadRoute(app, client);
 app.get('/', (req, res) => res.send('Multi-Function Bot Server is Live!'));
 
@@ -132,7 +127,7 @@ setInterval(() => {
 }, 8 * 60 * 1000);
 
 app.listen(PORT, async () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server listening on port ${PORT}`);
   await client.start({ botAuthToken: BOT_TOKEN });
   const me = await client.getMe();
   botUsername = me.username;
