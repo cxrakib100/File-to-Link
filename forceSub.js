@@ -4,6 +4,7 @@ const { Button } = require('telegram/tl/custom/button');
 const FORCE_CHANNEL = 'Mrincomeboss';
 const FORCE_CHANNEL_URL = 'https://t.me/Mrincomeboss';
 
+// ইউজার চ্যানেলে জয়েন আছে কিনা চেক করা
 async function isUserJoined(client, userId) {
   try {
     const res = await client.invoke(
@@ -18,11 +19,8 @@ async function isUserJoined(client, userId) {
   }
 }
 
-async function sendJoinPrompt(client, chatId, botUsername) {
-  const verifyUrl = botUsername 
-    ? `https://t.me/${botUsername}?start=verify`
-    : FORCE_CHANNEL_URL;
-
+// জয়েন না থাকলে ইনলাইন বাটন পাঠানো (কোনো রিডাইরেক্ট লিংক ছাড়া পিওর বাটন)
+async function sendJoinPrompt(client, chatId) {
   const text = 
 `⚠️ **প্রবেশাধিকার সীমিত!**
 
@@ -30,7 +28,7 @@ async function sendJoinPrompt(client, chatId, botUsername) {
 
   const buttons = [
     [Button.url('📢 Join Our Channel', FORCE_CHANNEL_URL)],
-    [Button.url('🔄 ভেরিফাই করুন (Check)', verifyUrl)]
+    [Button.inline('🔄 ভেরিফাই করুন (Check)', Buffer.from('check_sub'))] // পিওর কলব্যাক বাটন (তীর চিহ্ন ছাড়া)
   ];
 
   await client.sendMessage(chatId, {
@@ -40,4 +38,4 @@ async function sendJoinPrompt(client, chatId, botUsername) {
   });
 }
 
-module.exports = { isUserJoined, sendJoinPrompt };
+module.exports = { isUserJoined, sendJoinPrompt, FORCE_CHANNEL };
