@@ -222,7 +222,7 @@ client.addEventHandler(async (update) => {
   }
 });
 
-// ২. মূল মেসেজ হ্যান্ডলার (জিরো ল্যাগ ও আল্ট্রা ফাস্ট)
+// ২. মূল মেসেজ হ্যান্ডলার (ফাইল ও টিকটক সম্পূর্ণ আলাদা মোড)
 client.addEventHandler(async (event) => {
   const message = event.message;
   if (!message) return;
@@ -236,12 +236,17 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // ★ ১ নম্বর অগ্রাধিকার: মেসেজের সাথে ফাইল/ডকুমেন্ট থাকলে সেটি হ্যান্ডল হবে
+  const currentMode = userModes.get(String(senderId)) || 'main';
+
+  // ★ ১ নম্বর অগ্রাধিকার: ফাইল আসলে মোড অনুযায়ী চেক
   const hasRealFile = message.media && (message.media.document || message.media.photo);
   if (hasRealFile) {
-    const currentMode = userModes.get(String(senderId)) || 'file';
     if (currentMode === 'tiktok') {
-      await message.reply({ message: '⚠️ আপনি টিকটক মোডে আছেন! ফাইল আপলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤" সিলেক্ট করুন।' });
+      await message.reply({ message: '⚠️ আপনি "টিকটক ভিডিও" মোডে আছেন! ফাইল আপলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤" সিলেক্ট করুন।' });
+      return;
+    }
+    if (currentMode === 'main') {
+      await message.reply({ message: '⚠️ ফাইল আপলোড করতে প্রথমে নিচের মেনু থেকে "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤" বাটনটি বেছে নিন।' });
       return;
     }
 
@@ -250,7 +255,7 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // ★ ২ নম্বর অগ্রাধিকার: সাধারণ টেক্সট বা বাটন ক্লিক
+  // ★ ২ নম্বর অগ্রাধিকার: টেক্সট ও বাটন ক্লিক হ্যান্ডলিং
   const text = (message.text || '').trim();
 
   // /start কমান্ড দিলে
@@ -277,7 +282,7 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // বাটন ৩: 𝐒𝐮𝐩𝐩𝐨𝐫𝐭 (সরাসরি কাজ করবে এবং কখনো ফেইল করবে না)
+  // বাটন ৩: 𝐒𝐮𝐩𝐩𝐨𝐫𝐭 (স্ক্রিনশটের হুবহু ডিজাইন ও ইনলাইন বাটন)
   if (text === '𝐒𝐮𝐩𝐩𝐨𝐫𝐭' || text === 'Support' || text.toLowerCase().includes('support')) {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
     const prefillText = encodeURIComponent('আসসালামু আলাইকুম ভাইয়া!');
@@ -286,11 +291,11 @@ client.addEventHandler(async (event) => {
     await sendFastTelegramRequest('sendMessage', {
       chat_id: cleanId,
       text: 
-`👨‍💻 <b>অ্যাডমিন সাপোর্ট ও সহায়তা কেন্দ্র</b>
-━━━━━━━━━━━━━━━━━━━━━━
+`🧑‍💻 <b>অ্যাডমিন সাপোর্ট ও সহায়তা কেন্দ্র</b>
+▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 যেকোনো সমস্যা, প্রশ্ন বা সহায়তার জন্য সরাসরি অ্যাডমিনের সাথে যোগাযোগ করতে পারেন।
 
-👇 <b>নিচের বাটনে ক্লিক করে! 👇 </b>`,
+👇 <b>নিচের বাটনে ক্লিক করে!</b> 👇`,
       parse_mode: 'HTML',
       reply_markup: {
         inline_keyboard: [
@@ -311,26 +316,42 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // টিকটক লিংক হ্যান্ডলিং (শুধুমাত্র নিখুঁত ভিডিও লিংক আলাদা করবে)
+  // ★ ৩ নম্বর অগ্রাধিকার: টিকটক লিংক আসলে কঠোর মোড যাচাই
   const isTikTokLink = /(?:tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com)/i.test(text);
   if (isTikTokLink) {
-    const allUrls = text.match(/https?:\/\/(?:[a-zA-Z0-9-]+\.)?tiktok\.com\/[^\s]+/gi) || [];
-    // tiktoklite বা অতিরিক্ত বিজ্ঞাপনী লিংক বাদ দিয়ে আসল ভিডিওর লিংক বের করা
-    const cleanVideoUrl = allUrls.find(u => !u.toLowerCase().includes('tiktoklite')) || allUrls[0];
-
-    if (cleanVideoUrl) {
-      startAutoBackTimer(chatId, senderId);
-      await handleTikTokDownload(client, chatId, cleanVideoUrl);
+    if (currentMode === 'file') {
+      await message.reply({ 
+        message: '⚠️ আপনি "ফাইল টু লিংক" মোডে আছেন! টিকটক ভিডিও ডাউনলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" মোড সিলেক্ট করুন।' 
+      });
       return;
+    }
+
+    if (currentMode === 'main') {
+      await message.reply({ 
+        message: '⚠️ টিকটক ভিডিও ডাউনলোড করতে প্রথমে নিচের মেনু থেকে "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" বাটনটি বেছে নিন।' 
+      });
+      return;
+    }
+
+    if (currentMode === 'tiktok') {
+      const allUrls = text.match(/https?:\/\/(?:[a-zA-Z0-9-]+\.)?tiktok\.com\/[^\s]+/gi) || [];
+      const cleanVideoUrl = allUrls.find(u => !u.toLowerCase().includes('tiktoklite')) || allUrls[0];
+
+      if (cleanVideoUrl) {
+        startAutoBackTimer(chatId, senderId);
+        await handleTikTokDownload(client, chatId, cleanVideoUrl);
+        return;
+      }
     }
   }
 
-  // সাধারণ টেক্সটের ক্ষেত্রে
-  const currentMode = userModes.get(String(senderId)) || 'main';
+  // সাধারণ বা ভুল টেক্সট পাঠালে মোড অনুযায়ী নির্দেশনা
   if (currentMode === 'tiktok') {
     await message.reply({ message: '⚠️ অনুগ্রহ করে একটি সঠিক টিকটক ভিডিওর লিংক পাঠান (যেমন: https://vt.tiktok.com/...)' });
+  } else if (currentMode === 'file') {
+    await message.reply({ message: '⚠️ আপনি "ফাইল টু লিংক" মোডে আছেন! অনুগ্রহ করে যেকোনো ফাইল, ভিডিও, APK বা ডকুমেন্ট সেন্ড করুন।' });
   } else {
-    await message.reply({ message: '💡 যেকোনো ফাইল সেন্ড করুন অথবা নিচের মেনু বাটন ব্যবহার করুন।' });
+    await message.reply({ message: '💡 যেকোনো ফাইল সেন্ড করতে বা টিকটক ডাউনলোড করতে নিচের মেনু বাটন ব্যবহার করুন।' });
   }
 }, new NewMessage({ incoming: true }));
 
