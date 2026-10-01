@@ -1,6 +1,6 @@
 require('dotenv').config();
 const express = require('express');
-const { TelegramClient } = require('telegram');
+const { TelegramClient, Api } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 const { NewMessage } = require('telegram/events');
 
@@ -21,7 +21,7 @@ let botUsername = '';
 
 const userModes = new Map();
 
-// আপনার কাঙ্ক্ষিত স্টাইলিশ বোল্ড ফন্ট ও কালারড বাটন
+// আপনার স্টাইলিশ বোল্ড ফন্ট ও রঙিন বাটন
 async function sendColoredMenu(chatId, text) {
   try {
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
@@ -47,7 +47,61 @@ async function sendColoredMenu(chatId, text) {
   }
 }
 
-// টেক্সট ও মেনু হ্যান্ডলার
+// ১. ইনলাইন বাটন ভেরিফিকেশন (চাকার মতো ঘুরবে ও অ্যালার্ট দেবে)
+client.addEventHandler(async (update) => {
+  if (update.className === 'UpdateBotCallbackQuery') {
+    const data = update.data ? update.data.toString() : '';
+
+    if (data === 'check_sub') {
+      const senderId = update.userId;
+      const joined = await isUserJoined(client, senderId);
+
+      if (joined) {
+        // চাকার ঘূর্ণন শেষ করে সাকসেস মেসেজ দেওয়া
+        await client.invoke(
+          new Api.messages.SetBotCallbackAnswer({
+            queryId: update.queryId,
+            message: '✅ ভেরিফিকেশন সফল হয়েছে!',
+            alert: false,
+          })
+        );
+
+        // আগের মেসেজটি পরিবর্তন করে স্বাগতম মেসেজ বসানো (নতুন কোনো স্টার্ট হবে না)
+        try {
+          await client.editMessage(update.peer, {
+            message: update.msgId,
+            text: 
+`🎉 **স্বাগতম! চ্যানেল ভেরিফিকেশন সফল হয়েছে।**
+
+⚡ **বটের সব সার্ভিস এখন সক্রিয়!**
+নিচের মেনু বাটন ব্যবহার করে আপনার প্রয়োজনীয় কাজটি বেছে নিন।`,
+            parseMode: 'md',
+          });
+        } catch (e) {}
+
+        // রঙিন বাটনগুলো নিচে পাঠিয়ে দেওয়া
+        userModes.set(String(senderId), 'file');
+        await sendColoredMenu(
+          update.peer,
+          `🟢 **𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤:** ১০০ এমবি পর্যন্ত ফাইল সরাসরি ডাউনলোডের লিংক বানাতে।\n🔴 **𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨:** টিকটক ভিডিও ওয়াটারমার্ক ছাড়া সরাসরি ডাউনলোড করতে।`
+        );
+
+      } else {
+        // জয়েন না করলে চাকার ঘূর্ণন শেষে পপ-আপ অ্যালার্ট দেওয়া
+        // মেসেজটি নড়বে না, ওখানেই আটকে থাকবে!
+        await client.invoke(
+          new Api.messages.SetBotCallbackAnswer({
+            queryId: update.queryId,
+            message: '⚠️ আপনি এখনো চ্যানেলে জয়েন করেননি! দয়া করে আগে চ্যানেলে জয়েন করুন।',
+            alert: true, // স্ক্রিনে স্পষ্ট ওয়ার্নিং পপ-আপ ভাসবে
+          })
+        );
+      }
+    }
+  }
+});
+
+// ২. টেক্সট ও মেনু হ্যান্ডলার
 client.addEventHandler(async (event) => {
   const message = event.message;
   if (!message) return;
@@ -56,14 +110,14 @@ client.addEventHandler(async (event) => {
   const senderId = message.senderId;
   const chatId = message.chatId;
 
-  // ১. চ্যানেল ভেরিফিকেশন
+  // চ্যানেল ভেরিফিকেশন
   const joined = await isUserJoined(client, senderId);
   if (!joined) {
-    await sendJoinPrompt(client, chatId, botUsername);
+    await sendJoinPrompt(client, chatId);
     return;
   }
 
-  // ২. /start কমান্ড
+  // /start কমান্ড দিলে
   if (text.startsWith('/start')) {
     userModes.set(String(senderId), 'file');
     await sendColoredMenu(
@@ -73,7 +127,7 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // ৩. বাটন ক্লিক হ্যান্ডলার
+  // বাটন ক্লিক হ্যান্ডলার
   if (text.includes('𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤') || text.includes('File To Link') || text === '/file') {
     userModes.set(String(senderId), 'file');
     await sendColoredMenu(chatId, `🟢 **ফাইল টু লিংক মোড সক্রিয় হয়েছে!**\n\nএখন যেকোনো **ফাইল, পিডিএফ, ভিডিও বা ছবি (১০০ এমবি পর্যন্ত)** পাঠান। সরাসরি ১-ক্লিক ডাউনলোড লিংক তৈরি করে দেওয়া হবে।`);
@@ -86,17 +140,15 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // ৪. টিকটক লিংক আসলে সরাসরি ডাউনলোড ইঞ্জিন
+  // টিকটক লিংক আসলে সরাসরি ডাউনলোড
   const isTikTokLink = /(?:tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com)\//.test(text);
-
   if (isTikTokLink) {
     await handleTikTokDownload(client, chatId, text);
     return;
   }
 
-  // ৫. ফাইল টু লিংক হ্যান্ডলার (এটি শুধুমাত্র চ্যানেলে ফরওয়ার্ড হবে)
+  // ফাইল টু লিংক হ্যান্ডলার
   const hasRealFile = message.media && (message.media.document || message.media.photo);
-
   if (hasRealFile) {
     const currentMode = userModes.get(String(senderId)) || 'file';
     if (currentMode === 'tiktok') {
