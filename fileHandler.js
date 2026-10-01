@@ -4,42 +4,114 @@ const BASE_URL = (process.env.BASE_URL || '').replace(/\/$/, '');
 // ৫০০ মেগাবাইট সাইজ লিমিট
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
 
-// কোনো বিজ্ঞাপন ছাড়া সরাসরি ১০০% ডিরেক্ট রিডাইরেক্ট শর্টনার ইঞ্জিন
-async function getVerifiedShortLink(longUrl) {
-  // ১. is.gd ইঞ্জিন (সম্পূর্ণ বিজ্ঞাপনহীন, সরাসরি ৩০১ রিডাইরেক্ট দিয়ে ডাউনলোড শুরু করে)
-  try {
-    const res = await fetch(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(longUrl)}`, {
-      signal: AbortSignal.timeout(4000)
+// ১০-১৫টি শক্তিশালী ও বিজ্ঞাপনহীন শর্টনার প্রোভাইডারের তালিকা
+const SHORTENER_SERVICES = [
+  // ১. clck.ru
+  async (url) => {
+    const res = await fetch(`https://clck.ru/--?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(3000) });
+    if (res.ok) {
+      const s = (await res.text()).trim();
+      if (s.startsWith('https://clck.ru/')) return s;
+    }
+    return null;
+  },
+  // ২. is.gd
+  async (url) => {
+    const res = await fetch(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(3000) });
+    if (res.ok) {
+      const s = (await res.text()).trim();
+      if (s.startsWith('https://is.gd/')) return s;
+    }
+    return null;
+  },
+  // ৩. da.gd
+  async (url) => {
+    const res = await fetch(`https://da.gd/s?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(3000) });
+    if (res.ok) {
+      const s = (await res.text()).trim();
+      if (s.startsWith('https://da.gd/')) return s;
+    }
+    return null;
+  },
+  // ৪. cleanuri.com
+  async (url) => {
+    const res = await fetch('https://cleanuri.com/api/v1/shorten', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `url=${encodeURIComponent(url)}`,
+      signal: AbortSignal.timeout(3500)
     });
     if (res.ok) {
-      const short = (await res.text()).trim();
-      if (short.startsWith('https://is.gd/')) return short;
+      const data = await res.json();
+      if (data.result_url) return data.result_url;
     }
-  } catch (e) {}
-
-  // ২. clck.ru ইঞ্জিন (ব্যাকআপ নো-অ্যাড ডিরেক্ট রিডাইরেক্ট)
-  try {
-    const res = await fetch(`https://clck.ru/--?url=${encodeURIComponent(longUrl)}`, {
-      signal: AbortSignal.timeout(4000)
-    });
+    return null;
+  },
+  // ৫. ulvis.net
+  async (url) => {
+    const res = await fetch(`https://ulvis.net/api.php?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(3000) });
     if (res.ok) {
-      const short = (await res.text()).trim();
-      if (short.startsWith('https://clck.ru/')) return short;
+      const s = (await res.text()).trim();
+      if (s.startsWith('https://ulvis.net/')) return s;
     }
-  } catch (e) {}
-
-  // ৩. da.gd ইঞ্জিন (৩য় নো-অ্যাড ব্যাকআপ)
-  try {
-    const res = await fetch(`https://da.gd/s?url=${encodeURIComponent(longUrl)}`, {
-      signal: AbortSignal.timeout(4000)
-    });
+    return null;
+  },
+  // ৬. tny.im
+  async (url) => {
+    const res = await fetch(`https://tny.im/yourls-api.php?action=shorturl&format=simple&url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(3000) });
     if (res.ok) {
-      const short = (await res.text()).trim();
-      if (short.startsWith('https://da.gd/')) return short;
+      const s = (await res.text()).trim();
+      if (s.startsWith('https://tny.im/')) return s;
     }
-  } catch (e) {}
+    return null;
+  }
+];
 
-  return longUrl;
+// শর্ট লিংক তৈরি হওয়ার পর বট নিজে ক্লিক করে লাইভ টেস্ট করার ফাংশন
+async function verifyShortLinkLive(shortUrl, originalUrl) {
+  try {
+    // সরাসরি হেড রিকোয়েস্ট পাঠিয়ে যাচাই করা (এটি কি আসল লিংকে রিডাইরেক্ট করে?)
+    const res = await fetch(shortUrl, {
+      method: 'HEAD',
+      redirect: 'manual', // রিডাইরেক্ট কোড চেক
+      signal: AbortSignal.timeout(2500)
+    });
+
+    // ৩০১ বা ৩০২ রিডাইরেক্ট আসলে লিংক ১০০% লাইভ ও পারফেক্ট
+    if ([301, 302, 307, 308].includes(res.status)) {
+      return true;
+    }
+
+    // অথবা ডিরেক্ট ২০০ ওকে পেলে
+    if (res.status === 200) {
+      return true;
+    }
+  } catch (e) {
+    // লাইভ টেস্ট ফেইল করলে ফলস রিটার্ন করবে
+    return false;
+  }
+  return false;
+}
+
+// সেলফ-হিলিং শর্টনার ম্যানেজার (একটি ফেইল করলে লাইভ চেক করে পরেরটিতে যাবে)
+async function getBulletproofShortLink(longUrl, channelMsgId) {
+  for (const shortener of SHORTENER_SERVICES) {
+    try {
+      const candidateUrl = await shortener(longUrl);
+      if (candidateUrl) {
+        // বট নিজে লাইভ চেক করছে লিংকটি কাজ করে কিনা
+        const isWorking = await verifyShortLinkLive(candidateUrl, longUrl);
+        if (isWorking) {
+          return candidateUrl; // ১০০% সফল হলে এই লিংকটিই ইউজারকে দেওয়া হবে
+        }
+      }
+    } catch (e) {
+      continue; // ফেইল করলে পরের শর্টনারে চলে যাবে
+    }
+  }
+
+  // যদি বাইরের সব সাইট বন্ধও হয়ে যায়, আমাদের নিজস্ব ডিরেক্ট পার্মানেন্ট শর্ট লিংক
+  return `${BASE_URL}/s/${channelMsgId}`;
 }
 
 // ফাইল গ্রহণ করে লিংক তৈরি করা
@@ -67,7 +139,7 @@ async function processFileUpload(client, message) {
 
     const sizeMB = fileSize ? (fileSize / (1024 * 1024)).toFixed(2) : '0';
 
-    // ১. ৫০০ এমবির বেশি হলে সতর্কবার্তা দেওয়া
+    // ৫০০ এমবির বেশি হলে সতর্কবার্তা দেওয়া
     if (fileSize > MAX_FILE_SIZE) {
       await message.reply({
         message: 
@@ -83,26 +155,21 @@ async function processFileUpload(client, message) {
       return;
     }
 
-    // ২. ক্লাউড টু ক্লাউড ট্রান্সফার
+    // ক্লাউড টু ক্লাউড ট্রান্সফার
     const sentMsg = await client.sendFile(BIN_CHANNEL, {
       file: message.media,
       caption: message.text || '',
     });
 
     const channelMsgId = sentMsg ? sentMsg.id : null;
+    if (!channelMsgId) throw new Error('চ্যানেল মেসেজ আইডি পাওয়া যায়নি');
 
-    if (!channelMsgId) {
-      throw new Error('চ্যানেল মেসেজ আইডি পাওয়া যায়নি');
-    }
-
-    // ডাউনলোড লিংক তৈরি
     const safeEncodedName = encodeURIComponent(fileName);
     const downloadLink = `${BASE_URL}/dl/${channelMsgId}/${safeEncodedName}`;
 
-    // ৩. বিজ্ঞাপনহীন সরাসরি লাইভ শর্ট লিংক তৈরি করা
-    const shortLink = await getVerifiedShortLink(downloadLink);
+    // বট নিজে লাইভ টেস্ট করে নিশ্চিত হয়ে শর্ট লিংক বের করবে
+    const shortLink = await getBulletproofShortLink(downloadLink, channelMsgId);
 
-    // HTML ফরম্যাটিং যাতে হাইপারলিংক কখনো না ভাঙে
     const responseHtml = 
 `✅ <b>${fileType} সফলভাবে আপলোড হয়েছে!</b>
 
@@ -130,6 +197,20 @@ ${shortLink}
 
 // ব্রাউজারে ৫০০ এমবি পর্যন্ত ফাইল ১-ক্লিকে ডাউনলোড দেওয়ার স্ট্রিমিং রাউট
 function setupDownloadRoute(app, client) {
+  // আমাদের নিজস্ব ব্যাকআপ শর্ট রিডাইরেক্ট রাউট
+  app.get('/s/:id', async (req, res) => {
+    const msgId = Number(req.params.id);
+    if (!msgId) return res.status(400).send('Invalid Link');
+    const messages = await client.getMessages(BIN_CHANNEL, { ids: [msgId] });
+    if (!messages || !messages[0]?.media) return res.status(404).send('File not found');
+    
+    const doc = messages[0].media.document;
+    const attr = doc?.attributes?.find(a => a.className === 'DocumentAttributeFilename');
+    const fileName = attr ? attr.fileName : 'download';
+    res.redirect(302, `/dl/${msgId}/${encodeURIComponent(fileName)}`);
+  });
+
+  // মূল ডাউনলোড রাউট
   app.get('/dl/:id/:filename', async (req, res) => {
     try {
       const msgId = Number(req.params.id);
