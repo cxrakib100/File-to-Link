@@ -35,7 +35,7 @@ const MAIN_MENU_TEXT =
 const FILE_SERVICE_TEXT = 
 `📁 𝐅𝐢𝐥𝐞 𝐭𝐨 𝐋𝐢𝐧𝐤 𝐒𝐞𝐫𝐯𝐢𝐜𝐞
 ━━━━━━━━━━━━━━━━━━━━━━
-📥 যেকোনো FILE, APK, PDF, Video, ETC
+📥 যেকোনো FILE,  APK,  PDF,  VIDEO
 📦 সর্বোচ্চ ৫০০ MB পর্যন্ত পাঠান।
 
 ⚡ 𝐈𝐧𝐬𝐭𝐚𝐧𝐭 𝐃𝐢𝐫𝐞𝐜𝐭 𝐋𝐢𝐧𝐤
