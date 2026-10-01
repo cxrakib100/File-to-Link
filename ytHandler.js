@@ -3,61 +3,28 @@ const path = require('path');
 const { pipeline } = require('stream/promises');
 const { Readable } = require('stream');
 
-// ইউটিউবের নিজস্ব অফিশিয়াল InnerTube ইঞ্জিন দিয়ে সরাসরি ভিডিও লিংক বের করা
-async function getDirectVideoUrl(videoId) {
-  // ১. ইউটিউব অ্যান্ড্রয়েড ক্লায়েন্ট ইঞ্জিন
+// পাওয়ারফুল ইঞ্জিন দিয়ে সরাসরি ইউটিউব ভিডিও লিংক নেওয়া
+async function getDirectVideoUrl(videoId, fullYtUrl) {
+  // ১. মেগা ইঞ্জিন: Apple VisionOS InnerTube ডিরেক্ট বাইপাস
   try {
-    const res = await fetch(`https://www.youtube.com/youtubei/v1/player?key=AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w`, {
+    const res = await fetch('https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent': 'com.google.android.youtube/19.05.36 (Linux; U; Android 11; en_US) gzip'
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
+        'X-YouTube-Client-Name': '101',
+        'X-YouTube-Client-Version': '1.02'
       },
       body: JSON.stringify({
-        videoId: videoId,
         context: {
           client: {
-            clientName: 'ANDROID',
-            clientVersion: '19.05.36',
-            androidSdkVersion: 30
-          }
-        }
-      }),
-      signal: AbortSignal.timeout(8000)
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      const title = data.videoDetails?.title || 'YouTube Video';
-      const formats = data.streamingData?.formats || [];
-      // অডিও সহ ৭২০p বা ৩৬০p সরাসরি ভিডিও
-      const best = formats.find(f => f.url && f.qualityLabel === '720p') || formats.find(f => f.url);
-      if (best?.url) {
-        return { url: best.url, title: title };
-      }
-    }
-  } catch (e) {
-    console.error('Android InnerTube failed:', e);
-  }
-
-  // ২. ইউটিউব আইওএস ক্লায়েন্ট ইঞ্জিন
-  try {
-    const res = await fetch(`https://www.youtube.com/youtubei/v1/player?key=AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'com.google.ios.youtube/19.29.1 (iPhone14,5; U; CPU iOS 17_5 like Mac OS X)'
-      },
-      body: JSON.stringify({
-        videoId: videoId,
-        context: {
-          client: {
-            clientName: 'IOS',
-            clientVersion: '19.29.1',
+            clientName: 'VISIONOS',
+            clientVersion: '1.02',
             deviceMake: 'Apple',
-            deviceModel: 'iPhone14,5'
+            deviceModel: 'Apple Vision Pro'
           }
-        }
+        },
+        videoId: videoId
       }),
       signal: AbortSignal.timeout(8000)
     });
@@ -66,27 +33,53 @@ async function getDirectVideoUrl(videoId) {
       const data = await res.json();
       const title = data.videoDetails?.title || 'YouTube Video';
       const formats = data.streamingData?.formats || [];
+      // অডিও ও ভিডিও একসাথে থাকা সরাসরি প্রগ্রেসিভ MP4 স্ট্রিম
       const best = formats.find(f => f.url && f.qualityLabel === '720p') || formats.find(f => f.url);
       if (best?.url) {
         return { url: best.url, title: title };
       }
     }
   } catch (e) {
-    console.error('iOS InnerTube failed:', e);
+    console.error('VisionOS Engine error:', e);
   }
 
-  // ৩. ব্যাকআপ রেস্ট এপিআই (Siputzx API)
+  // ২. সেকেন্ডারি ব্যাকআপ ইঞ্জিন: SaveNow গ্লোবাল সিডিএন
   try {
-    const res = await fetch(`https://api.siputzx.my.id/api/d/savefrom?url=https://www.youtube.com/watch?v=${videoId}`, {
+    const saveRes = await fetch(`https://p.savenow.to/ajax/download.php?copyright=0&allow_extended_duration=1&apikey=dfcb6d76f2f6a9894gjkege8a4ab232222&format=720&url=${encodeURIComponent(fullYtUrl)}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(7000)
+    });
+
+    if (saveRes.ok) {
+      const sData = await saveRes.json();
+      if (sData.id) {
+        // প্রগ্রেস চেক
+        for (let i = 0; i < 5; i++) {
+          await new Promise(r => setTimeout(r, 2000));
+          const pRes = await fetch(`https://p.savenow.to/ajax/progress.php?id=${sData.id}`);
+          if (pRes.ok) {
+            const pData = await pRes.json();
+            if (pData.success && pData.download_url) {
+              return { url: pData.download_url, title: sData.info?.title || 'YouTube Video' };
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {}
+
+  // ৩. থার্ড ব্যাকআপ ইঞ্জিন: Siputzx
+  try {
+    const sipRes = await fetch(`https://api.siputzx.my.id/api/d/savefrom?url=${encodeURIComponent(fullYtUrl)}`, {
       headers: { 'User-Agent': 'Mozilla/5.0' },
       signal: AbortSignal.timeout(6000)
     });
-    if (res.ok) {
-      const data = await res.json();
-      const urls = data.data?.url || data.result?.url || [];
-      const best = Array.isArray(urls) ? urls.find(u => u.url && !u.no_audio) || urls[0] : null;
+    if (sipRes.ok) {
+      const sData = await sipRes.json();
+      const urls = sData.data?.url || [];
+      const best = urls.find(u => u.url && !u.no_audio) || urls[0];
       if (best?.url) {
-        return { url: best.url, title: data.data?.meta?.title || 'YouTube Video' };
+        return { url: best.url, title: sData.data?.meta?.title || 'YouTube Video' };
       }
     }
   } catch (e) {}
@@ -102,6 +95,7 @@ async function handleYouTubeDownload(client, chatId, text) {
   if (!ytMatch) return false;
 
   const videoId = ytMatch[1];
+  const fullYtUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
   const statusMsg = await client.sendMessage(chatId, {
     message: '⚡ **ইউটিউব থেকে অডিও সহ সরাসরি ভিডিও প্রস্তুত করা হচ্ছে... অনুগ্রহ করে একটু অপেক্ষা করুন।**',
@@ -109,17 +103,18 @@ async function handleYouTubeDownload(client, chatId, text) {
   });
 
   try {
-    const videoData = await getDirectVideoUrl(videoId);
+    const videoData = await getDirectVideoUrl(videoId, fullYtUrl);
 
     if (!videoData || !videoData.url) {
-      throw new Error('ভিডিও লিংক জেনারেট করা সম্ভব হয়নি');
+      throw new Error('কোনো ইঞ্জিন থেকেই ভিডিও লিংক পাওয়া যায়নি');
     }
 
     const tempFilePath = path.join('/tmp', `yt_${videoId}_${Date.now()}.mp4`);
     
     const streamRes = await fetch(videoData.url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
+        'Accept': '*/*'
       }
     });
 
