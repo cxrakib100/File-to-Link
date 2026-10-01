@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const https = require('https');
 const { TelegramClient, Api } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 const { NewMessage } = require('telegram/events');
@@ -16,44 +17,43 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const BASE_URL = (process.env.BASE_URL || '').replace(/\/$/, '');
 const PORT = process.env.PORT || 3000;
 
-const client = new TelegramClient(new StringSession(''), API_ID, API_HASH, { connectionRetries: 5 });
+// আল্ট্রা ফাস্ট কানেকশন এবং অটো-রিকানেক্ট সেটিংস
+const client = new TelegramClient(new StringSession(''), API_ID, API_HASH, { 
+  connectionRetries: 10,
+  autoReconnect: true,
+  useWSS: false
+});
+
 const app = express();
 let botUsername = '';
-
 const userModes = new Map();
 const userTimeouts = new Map();
-
 const TWO_HOURS = 2 * 60 * 60 * 1000; // ২ ঘণ্টা (মিলিসেকেন্ডে)
 
-const MAIN_MENU_TEXT = 
-`🏠 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮
+// দ্রুত মেসেজ পাঠানোর জন্য পার্মানেন্ট HTTPS এজেন্ট (Zero Handshake Delay)
+const httpAgent = new https.Agent({ keepAlive: true, maxSockets: 50 });
+
+const MAIN_MENU_TEXT = `🏠 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮
 ━━━━━━━━━━━━━━━━━━━━━━
-✨ নিচের বাটন থেকে আপনার
-প্রয়োজনীয় সার্ভিসটি বেছে নিন।
+✨ নিচের বাটন থেকে আপনার প্রয়োজনীয় সার্ভিসটি বেছে নিন।
 ━━━━━━━━━━━━━━━━━━━━━━`;
 
-const FILE_SERVICE_TEXT = 
-`📁 𝐅𝐢𝐥𝐞 𝐭𝐨 𝐋𝐢𝐧𝐤 𝐒𝐞𝐫𝐯𝐢𝐜𝐞
+const FILE_SERVICE_TEXT = `📁 𝐅𝐢𝐥𝐞 𝐭𝐨 𝐋𝐢𝐧𝐤 𝐒𝐞𝐫𝐯𝐢𝐜𝐞
 ━━━━━━━━━━━━━━━━━━━━━━
 📥 যেকোনো FILE,  APK,  PDF,  VIDEO
 📦 সর্বোচ্চ ৫০০ MB পর্যন্ত পাঠান।
-
 ⚡ 𝐈𝐧𝐬𝐭𝐚𝐧𝐭 𝐃𝐢𝐫𝐞𝐜𝐭 𝐋𝐢𝐧𝐤
 🔗 সাথে সাথেই ১-ক্লিক ডাউনলোড লিংক পাবেন।
-
- 🏠 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮-তে ফিরতে
+🏠 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮-তে ফিরতে
 '🔙 𝐁𝐚𝐜𝐤 বাটন চাপুন।
 ━━━━━━━━━━━━━━━━━━━━━━`;
 
- const TIKTOK_SERVICE_TEXT = 
-`🎬 𝐓𝐢𝐤𝐓𝐨𝐤 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐞𝐫
+const TIKTOK_SERVICE_TEXT = `🎬 𝐓𝐢𝐤𝐓𝐨𝐤 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐞𝐫
 ━━━━━━━━━━━━━━━━━━━━━━
 📥 TikTok ভিডিওর 🔗 লিংকটি পাঠান।
-
 ✨ 𝐖𝐢𝐭𝐡𝐨𝐮𝐭 𝐖𝐚𝐭𝐞𝐫𝐦𝐚𝐫𝐤
 🎥 𝐇𝐢𝐠𝐡-𝐐𝐮𝐚𝐥𝐢𝐭𝐲 𝐕𝐢𝐝𝐞𝐨
-
- 🏠 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮-তে ফিরতে
+🏠 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮-তে ফিরতে
 '🔙 𝐁𝐚𝐜𝐤 বাটন চাপুন।
 ━━━━━━━━━━━━━━━━━━━━━━`;
 
@@ -62,21 +62,18 @@ function startAutoBackTimer(chatId, userId) {
   if (userTimeouts.has(String(userId))) {
     clearTimeout(userTimeouts.get(String(userId)));
   }
-
   const timer = setTimeout(async () => {
     try {
       const currentMode = userModes.get(String(userId));
       if (currentMode === 'file' || currentMode === 'tiktok') {
         userModes.set(String(userId), 'main');
         userTimeouts.delete(String(userId));
-
         await sendMainMenu(chatId, MAIN_MENU_TEXT);
       }
     } catch (err) {
       console.error('Auto back error:', err);
     }
   }, TWO_HOURS);
-
   userTimeouts.set(String(userId), timer);
 }
 
@@ -87,13 +84,14 @@ function cancelAutoBackTimer(userId) {
   }
 }
 
-// প্রধান মেনুর কিবোর্ড
+// প্রধান মেনুর কিবোর্ড (সুপারফাস্ট রেসপন্স)
 async function sendMainMenu(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      agent: httpAgent,
       body: JSON.stringify({
         chat_id: cleanId,
         text: text,
@@ -101,11 +99,11 @@ async function sendMainMenu(chatId, text) {
         reply_markup: {
           keyboard: [
             [
-              { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "success" },          // 🟢 গ্রিন বাটন
-              { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }           // 🔵 ব্লু বাটন
+              { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "success" },
+              { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }
             ],
             [
-              { text: "𝐒𝐮𝐩𝐩𝐨𝐫𝐭", style: "danger" }                 // 🔴 রেড বাটন
+              { text: "𝐒𝐮𝐩𝐩𝐨𝐫𝐭", style: "danger" }
             ]
           ],
           resize_keyboard: true
@@ -117,13 +115,14 @@ async function sendMainMenu(chatId, text) {
   }
 }
 
-// সাব-মেনু কিবোর্ড
+// সাব-মেনু কিবোর্ড (সুপারফাস্ট রেসপন্স)
 async function sendBackMenu(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      agent: httpAgent,
       body: JSON.stringify({
         chat_id: cleanId,
         text: text,
@@ -183,27 +182,26 @@ client.addEventHandler(async (update) => {
   }
 });
 
-// ২. মূল মেসেজ হ্যান্ডলার (ফাইল আগে চেক করবে যাতে ক্যাপশনের শব্দে বাটন ট্রিপ না করে)
+// ২. মূল মেসেজ হ্যান্ডলার
 client.addEventHandler(async (event) => {
   const message = event.message;
   if (!message) return;
-
   const senderId = message.senderId;
   const chatId = message.chatId;
 
-  // চ্যানেল ভেরিফিকেশন
+  // চ্যানেল ভেরিফিকেশন (আপনার মূল চেকিং অপরিবর্তিত)
   const joined = await isUserJoined(client, senderId);
   if (!joined) {
     await sendJoinPrompt(client, chatId);
     return;
   }
 
-  // ★ ১ নম্বর অগ্রাধিকার: মেসেজের সাথে কোনো ফাইল/ডকুমেন্ট/APK/ছবি থাকলে সেটি আগে হ্যান্ডল হবে
+  // ★ ১ নম্বর অগ্রাধিকার: মেসেজের সাথে ফাইল/ডকুমেন্ট থাকলে সেটি হ্যান্ডল হবে
   const hasRealFile = message.media && (message.media.document || message.media.photo);
   if (hasRealFile) {
     const currentMode = userModes.get(String(senderId)) || 'file';
     if (currentMode === 'tiktok') {
-      await message.reply({ message: '⚠️ আপনি **টিকটক মোডে** আছেন! ফাইল আপলোড করতে নিচে **"🔙 𝐁𝐚𝐜𝐤"** বাটনে চাপ দিয়ে **"𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤"** সিলেক্ট করুন।' });
+      await message.reply({ message: '⚠️ আপনি টিকটক মোডে আছেন! ফাইল আপলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤" সিলেক্ট করুন।' });
       return;
     }
 
@@ -219,7 +217,6 @@ client.addEventHandler(async (event) => {
   if (text.startsWith('/start')) {
     userModes.set(String(senderId), 'main');
     cancelAutoBackTimer(senderId);
-
     await sendMainMenu(chatId, MAIN_MENU_TEXT);
     return;
   }
@@ -228,7 +225,6 @@ client.addEventHandler(async (event) => {
   if (text === '𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤' || text === 'File To Link' || text === '/file') {
     userModes.set(String(senderId), 'file');
     startAutoBackTimer(chatId, senderId);
-
     await sendBackMenu(chatId, FILE_SERVICE_TEXT);
     return;
   }
@@ -237,23 +233,21 @@ client.addEventHandler(async (event) => {
   if (text === '𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨' || text === 'Tiktok Video' || text === '/tiktok') {
     userModes.set(String(senderId), 'tiktok');
     startAutoBackTimer(chatId, senderId);
-
     await sendBackMenu(chatId, TIKTOK_SERVICE_TEXT);
     return;
   }
 
-  // বাটন ৩: 𝐒𝐮𝐩𝐩𝐨𝐫𝐭 (শুধুমাত্র ইউজার নিজে বাটন চাপলে আসবে, কোনো ফরোয়ার্ড ক্যাপশনে কাজ করবে না)
+  // বাটন ৩: 𝐒𝐮𝐩𝐩𝐨𝐫𝐭
   if (text === '𝐒𝐮𝐩𝐩𝐨𝐫𝐭' || text === 'Support') {
     const prefillText = encodeURIComponent('আসসালামু আলাইকুম ভাইয়া!');
     const supportUrl = `https://t.me/cx_rakib?text=${prefillText}`;
 
     await client.sendMessage(chatId, {
-      message: 
-`👨‍💻 **অ্যাডমিন সাপোর্ট ও সহায়তা কেন্দ্র**
+      message:
+`👨‍💻 অ্যাডমিন সাপোর্ট ও সহায়তা কেন্দ্র
 ━━━━━━━━━━━━━━━━━━━━━━
 যেকোনো সমস্যা, প্রশ্ন বা সহায়তার জন্য সরাসরি অ্যাডমিনের সাথে যোগাযোগ করতে পারেন।
-
-👇 **নিচের বাটনে ক্লিক করুন (মেসেজ আগে থেকেই রেডি থাকবে):**`,
+👇 নিচের বাটনে ক্লিক করুন (মেসেজ আগে থেকেই রেডি থাকবে):`,
       buttons: [
         [Button.url('💬 অ্যাডমিনকে মেসেজ পাঠান', supportUrl)]
       ],
@@ -266,13 +260,12 @@ client.addEventHandler(async (event) => {
   if (text.includes('𝐁𝐚𝐜𝐤') || text.includes('Back') || text === '/back') {
     userModes.set(String(senderId), 'main');
     cancelAutoBackTimer(senderId);
-
     await sendMainMenu(chatId, MAIN_MENU_TEXT);
     return;
   }
 
   // টিকটক লিংক আসলে সরাসরি ডাউনলোড
-  const isTikTokLink = /(?:tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com)\//.test(text);
+  const isTikTokLink = /(?:tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com)/i.test(text);
   if (isTikTokLink) {
     startAutoBackTimer(chatId, senderId);
     await handleTikTokDownload(client, chatId, text);
@@ -291,6 +284,17 @@ client.addEventHandler(async (event) => {
 // ডাউনলোড রাউট সেটআপ
 setupDownloadRoute(app, client);
 app.get('/', (req, res) => res.send('Multi-Function Bot Server is Live!'));
+
+// ৫-২০ দিন বা ১ মাস পরেও যেন সকেট ফ্রেশ থাকে (MTProto 24/7 Keep-Alive)
+setInterval(async () => {
+  try {
+    if (client && client.connected) {
+      await client.invoke(new Api.help.GetConfig()); // সংযোগ সর্বদা লাইভ রাখবে
+    } else if (client) {
+      await client.connect();
+    }
+  } catch (e) {}
+}, 25 * 1000);
 
 // সেলফ-পিং
 setInterval(() => {
