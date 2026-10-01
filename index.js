@@ -21,8 +21,49 @@ const app = express();
 let botUsername = '';
 
 const userModes = new Map();
+const userTimeouts = new Map(); // ২ ঘণ্টার টাইমার ট্র্যাকিং
 
-// আপনার কাঙ্ক্ষিত গ্রিন, ব্লু ও রেড বাটন কিবোর্ড
+const TWO_HOURS = 2 * 60 * 60 * 1000; // ২ ঘণ্টা (মিলিসেকেন্ডে)
+
+// আপনার কাঙ্ক্ষিত ব্যাক মেসেজটি এক জায়গায় রাখা হলো
+const BACK_HOME_TEXT = 
+`🏠 **প্রধান মেনু**
+━━━━━━━━━━━━━━━━━━━━━━
+নিচের বাটন থেকে প্রয়োজনীয় সার্ভিসটি বেছে নিন~`;
+
+// ২ ঘণ্টার অটো-ব্যাক টাইমার ফাংশন
+function startAutoBackTimer(chatId, userId) {
+  if (userTimeouts.has(String(userId))) {
+    clearTimeout(userTimeouts.get(String(userId)));
+  }
+
+  const timer = setTimeout(async () => {
+    try {
+      const currentMode = userModes.get(String(userId));
+      // ইউজার সাব-মোডে থাকলে ২ ঘণ্টা পর অটোমেটিক এই টেক্সট দিয়ে ব্যাক হবে
+      if (currentMode === 'file' || currentMode === 'tiktok') {
+        userModes.set(String(userId), 'main');
+        userTimeouts.delete(String(userId));
+
+        await sendMainMenu(chatId, BACK_HOME_TEXT);
+      }
+    } catch (err) {
+      console.error('Auto back error:', err);
+    }
+  }, TWO_HOURS);
+
+  userTimeouts.set(String(userId), timer);
+}
+
+// টাইমার বাতিল করার ফাংশন
+function cancelAutoBackTimer(userId) {
+  if (userTimeouts.has(String(userId))) {
+    clearTimeout(userTimeouts.get(String(userId)));
+    userTimeouts.delete(String(userId));
+  }
+}
+
+// প্রধান মেনু কিবোর্ড (গ্রিন, ব্লু ও রেড বাটন)
 async function sendMainMenu(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
@@ -36,11 +77,11 @@ async function sendMainMenu(chatId, text) {
         reply_markup: {
           keyboard: [
             [
-              { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "success" },          // 🟢 গ্রিন বাটন (১ম লাইন বামে)
-              { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }           // 🔵 ব্লু বাটন (১ম লাইন ডানে)
+              { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "success" },          // 🟢 গ্রিন বাটন
+              { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }           // 🔵 ব্লু বাটন
             ],
             [
-              { text: "𝐒𝐮𝐩𝐩𝐨𝐫𝐭", style: "danger" }                 // 🔴 রেড বাটন (সবার নিচে)
+              { text: "𝐒𝐮𝐩𝐩𝐨𝐫𝐭", style: "danger" }                 // 🔴 রেড বাটন
             ]
           ],
           resize_keyboard: true
@@ -101,6 +142,8 @@ client.addEventHandler(async (update) => {
         } catch (e) {}
 
         userModes.set(String(senderId), 'main');
+        cancelAutoBackTimer(senderId);
+
         await sendMainMenu(
           senderId,
           `🎉 **স্বাগতম! চ্যানেল ভেরিফিকেশন সফল হয়েছে।**\n\n⚡ **বটের সব সার্ভিস এখন সম্পূর্ণ সক্রিয়!**\n\nনিচের বাটন থেকে প্রয়োজনীয় কাজটি বেছে নিন:`
@@ -135,37 +178,40 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // /start কমান্ড দিলে প্রধান মেনু দেখানো
+  // /start কমান্ড দিলে
   if (text.startsWith('/start')) {
     userModes.set(String(senderId), 'main');
-    await sendMainMenu(
-      chatId,
-      `🏠 **প্রধান মেনু — File To Link & Media Hub**\n━━━━━━━━━━━━━━━━━━━━━━\nবটের সব সার্ভিস সক্রিয়! নিচের বাটন থেকে নির্বাচন করুন:\n\n🟢 **𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤:** ফাইল সরাসরি লিংকে রূপান্তর করতে।\n🔵 **𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨:** টিকটক ভিডিও ওয়াটারমার্ক ছাড়া ডাউনলোড করতে।\n🔴 **𝐒𝐮𝐩𝐩𝐨𝐫𝐭:** অ্যাডমিনের সাথে সরাসরি যোগাযোগ করতে।\n━━━━━━━━━━━━━━━━━━━━━━`
-    );
+    cancelAutoBackTimer(senderId);
+
+    await sendMainMenu(chatId, BACK_HOME_TEXT);
     return;
   }
 
-  // বাটন ১: 𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤 (গ্রিন বাটন)
+  // বাটন ১: 𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤
   if (text.includes('𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤') || text.includes('File To Link') || text === '/file') {
     userModes.set(String(senderId), 'file');
+    startAutoBackTimer(chatId, senderId); // ২ ঘণ্টার টাইমার শুরু
+
     await sendBackMenu(
       chatId,
-      `📁 **ফাইল টু লিংক সার্ভিস সক্রিয় হয়েছে!**\n━━━━━━━━━━━━━━━━━━━━━━\n📥 **কীভাবে ব্যবহার করবেন:**\nআমাকে যেকোনো **ফাইল, পিডিএফ, ভিডিও বা ছবি (১০০ এমবি পর্যন্ত)** পাঠান।\n\n⚡ সাথে সাথে একটি সরাসরি ১-ক্লিক ডাউনলোড লিংক তৈরি করে দেওয়া হবে।\n\n🔙 *প্রধান মেনুতে ফিরে যেতে চাইলে নিচের '🔙 𝐁𝐚𝐜𝐤' বাটন চাপুন।*\n━━━━━━━━━━━━━━━━━━━━━━`
+      `📁 **ফাইল টু লিংক সার্ভিস সক্রিয় হয়েছে!**\n━━━━━━━━━━━━━━━━━━━━━━\n📥 **কীভাবে ব্যবহার করবেন:**\nআমাকে যেকোনো **ফাইল, পিডিএফ, ভিডিও বা ছবি (১০০ এমবি পর্যন্ত)** পাঠান।\n\n⚡ সাথে সাথে একটি সরাসরি ১-ক্লিক ডাউনলোড লিংক তৈরি করে দেওয়া হবে।\n\n🔙 *প্রধান মেনুতে ফিরে যেতে চাইলে নিচের '🔙 𝐁𝐚𝐜𝐤' বাটন চাপুন।*\n*(২ ঘণ্টা নিষ্ক্রিয় থাকলে বট নিজে থেকেই মেনুতে ফিরে যাবে)*\n━━━━━━━━━━━━━━━━━━━━━━`
     );
     return;
   }
 
-  // বাটন ২: 𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨 (ব্লু বাটন)
+  // বাটন ২: 𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨
   if (text.includes('𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨') || text.includes('Tiktok Video') || text === '/tiktok') {
     userModes.set(String(senderId), 'tiktok');
+    startAutoBackTimer(chatId, senderId); // ২ ঘণ্টার টাইমার শুরু
+
     await sendBackMenu(
       chatId,
-      `🎬 **টিকটক ভিডিও ডাউনলোডার সক্রিয় হয়েছে!**\n━━━━━━━━━━━━━━━━━━━━━━\n📥 **কীভাবে ব্যবহার করবেন:**\nআপনার কাঙ্ক্ষিত টিকটক ভিডিওর লিংকটি এখানে পেস্ট করে সেন্ড করুন।\n\n✨ কোনো ওয়াটারমার্ক ছাড়া সরাসরি হাই-কোয়ালিটি ভিডিও এই চ্যাটেই পেয়ে যাবেন।\n\n🔙 *প্রধান মেনুতে ফিরে যেতে চাইলে নিচের '🔙 𝐁𝐚𝐜𝐤' বাটন চাপুন।*\n━━━━━━━━━━━━━━━━━━━━━━`
+      `🎬 **টিকটক ভিডিও ডাউনলোডার সক্রিয় হয়েছে!**\n━━━━━━━━━━━━━━━━━━━━━━\n📥 **কীভাবে ব্যবহার করবেন:**\nআপনার কাঙ্ক্ষিত টিকটক ভিডিওর লিংকটি এখানে পেস্ট করে সেন্ড করুন।\n\n✨ কোনো ওয়াটারমার্ক ছাড়া সরাসরি হাই-কোয়ালিটি ভিডিও এই চ্যাটেই পেয়ে যাবেন।\n\n🔙 *প্রধান মেনুতে ফিরে যেতে চাইলে নিচের '🔙 𝐁𝐚𝐜𝐤' বাটন চাপুন।*\n*(২ ঘণ্টা নিষ্ক্রিয় থাকলে বট নিজে থেকেই মেনুতে ফিরে যাবে)*\n━━━━━━━━━━━━━━━━━━━━━━`
     );
     return;
   }
 
-  // বাটন ৩: 𝐒𝐮𝐩𝐩𝐨𝐫𝐭 (রেড বাটন - সরাসরি প্রি-ফিল্ড মেসেজ সহ লিংক)
+  // বাটন ৩: 𝐒𝐮𝐩𝐩𝐨𝐫𝐭
   if (text.includes('𝐒𝐮𝐩𝐩𝐨𝐫𝐭') || text.includes('Support')) {
     const prefillText = encodeURIComponent('আসসালামু আলাইকুম ভাইয়া!');
     const supportUrl = `https://t.me/cx_rakib?text=${prefillText}`;
@@ -176,7 +222,7 @@ client.addEventHandler(async (event) => {
 ━━━━━━━━━━━━━━━━━━━━━━
 যেকোনো সমস্যা, প্রশ্ন বা সহায়তার জন্য সরাসরি অ্যাডমিনের সাথে যোগাযোগ করতে পারেন।
 
-👇 **নিচের বাটনে ক্লিক করুন** 👇`,
+👇 **নিচের বাটনে ক্লিক করুন (মেসেজ আগে থেকেই রেডি থাকবে):**`,
       buttons: [
         [Button.url('💬 অ্যাডমিনকে মেসেজ পাঠান', supportUrl)]
       ],
@@ -185,19 +231,19 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // বাটন ৪: '🔙 𝐁𝐚𝐜𝐤' চাপলে
+  // বাটন ৪: '🔙 𝐁𝐚𝐜𝐤' চাপলে আপনার কাঙ্ক্ষিত হুবহু টেক্সট আসবে
   if (text.includes('𝐁𝐚𝐜𝐤') || text.includes('Back') || text === '/back') {
     userModes.set(String(senderId), 'main');
-    await sendMainMenu(
-      chatId,
-      `🏠 **প্রধান মেনু**\n━━━━━━━━━━━━━━━━━━━━━━\nনিচের বাটন থেকে প্রয়োজনীয় সার্ভিসটি বেছে নিন:`
-    );
+    cancelAutoBackTimer(senderId); // টাইমার বাতিল
+
+    await sendMainMenu(chatId, BACK_HOME_TEXT);
     return;
   }
 
   // টিকটক লিংক আসলে সরাসরি ডাউনলোড
   const isTikTokLink = /(?:tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com)\//.test(text);
   if (isTikTokLink) {
+    startAutoBackTimer(chatId, senderId);
     await handleTikTokDownload(client, chatId, text);
     return;
   }
@@ -211,6 +257,7 @@ client.addEventHandler(async (event) => {
       return;
     }
 
+    startAutoBackTimer(chatId, senderId);
     await processFileUpload(client, message);
     return;
   }
