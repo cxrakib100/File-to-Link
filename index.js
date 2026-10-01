@@ -43,7 +43,7 @@ const MAIN_MENU_TEXT =
 const FILE_SERVICE_TEXT = 
 `📁 𝐅𝐢𝐥𝐞 𝐭𝐨 𝐋𝐢𝐧𝐤 𝐒𝐞𝐫𝐯𝐢𝐜𝐞
 ━━━━━━━━━━━━━━━━━━━━━━
-📥 যেকোনো FILE, APK, PDF, Video, ETC
+📥 যেকোনো FILE,  APK,  PDF,  VIDEO
 📦 সর্বোচ্চ ৫০০ MB পর্যন্ত পাঠান।
 
 ⚡ 𝐈𝐧𝐬𝐭𝐚𝐧𝐭 𝐃𝐢𝐫𝐞𝐜𝐭 𝐋𝐢𝐧𝐤
@@ -53,8 +53,8 @@ const FILE_SERVICE_TEXT =
 '🔙 𝐁𝐚𝐜𝐤 বাটন চাপুন।
 ━━━━━━━━━━━━━━━━━━━━━━`;
 
-const TIKTOK_SERVICE_TEXT = 
-`🎬 𝐓𝐢𝐤𝐓𝐨𝐤 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐞𝐫.
+ const TIKTOK_SERVICE_TEXT = 
+`🎬 𝐓𝐢𝐤𝐓𝐨𝐤 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐞𝐫
 ━━━━━━━━━━━━━━━━━━━━━━
 📥 TikTok ভিডিওর 🔗 লিংকটি পাঠান।
 
@@ -260,8 +260,6 @@ client.addEventHandler(async (event) => {
       buttons: [
         [Button.url('💬 অ্যাডমিনকে মেসেজ পাঠান', supportUrl)]
       ],
-      parseMode: 'md',
-    });
     return;
   }
 
