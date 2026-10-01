@@ -177,7 +177,7 @@ async function processFileUpload(client, message) {
 <b>𝐒𝐡𝐨𝐫𝐭 𝐋𝐢𝐧𝐤~👇</b>
 ${shortLink}
 
-<b><i>💡 লিংকে ক্লিক করলেই ব্রাউজারে ফাইলটি সরাসরি ডাউনলোড হবে।</i></b>`;
+<i>💡 লিংকে ক্লিক করলেই ব্রাউজারে ফাইলটি সরাসরি ডাউনলোড হবে।</i>`;
 
     await message.reply({
       message: responseHtml,
