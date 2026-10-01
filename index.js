@@ -21,7 +21,7 @@ let botUsername = '';
 
 const userModes = new Map();
 
-// স্ক্রিনশটের মতো গোল দাগের [ ⊞ ] আইকন ও গ্রিন-রেড গোলাকার বাটন পাঠানোর ফাংশন
+// আপনার পছন্দের স্টাইলিশ বোল্ড ফন্ট ও রঙের বাটন
 async function sendColoredMenu(chatId, text) {
   try {
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
@@ -34,11 +34,11 @@ async function sendColoredMenu(chatId, text) {
         reply_markup: {
           keyboard: [
             [
-              { text: "File To Link", style: "success" },          // 🟢 গ্রিন বাটন (গোলাকার রেডিয়াস)
-              { text: "YouTube Video Download", style: "danger" }   // 🔴 লাল বাটন (গোলাকার রেডিয়াস)
+              { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "success" },          // 🟢 গ্রিন ও বোল্ড ফন্ট
+              { text: "𝐘𝐓 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝", style: "danger" }   // 🔴 লাল ও বোল্ড ফন্ট
             ]
           ],
-          resize_keyboard: true // [ ⊞ ] আইকন দৃশ্যমান করার জন্য is_persistent সরানো হয়েছে
+          resize_keyboard: true
         }
       })
     });
@@ -47,7 +47,7 @@ async function sendColoredMenu(chatId, text) {
   }
 }
 
-// টেক্সট ও বাটন হ্যান্ডলার
+// টেক্সট ও বাটন ক্লিক হ্যান্ডলার
 client.addEventHandler(async (event) => {
   const message = event.message;
   if (!message || message.media) return;
@@ -68,20 +68,20 @@ client.addEventHandler(async (event) => {
     userModes.set(String(senderId), 'file');
     await sendColoredMenu(
       chatId,
-      `🎉 **স্বাগতম! চ্যানেল ভেরিফিকেশন সফল হয়েছে।**\n\nনিচের মেনু থেকে প্রয়োজনীয় সার্ভিস সিলেক্ট করুন:\n\n🟢 **File To Link:** ফাইল, ছবি, ভিডিও লিংকে রূপান্তর করতে।\n🔴 **YouTube Video Download:** ইউটিউব ভিডিও ডাউনলোড করতে।`
+      `🎉 **স্বাগতম! চ্যানেল ভেরিফিকেশন সফল হয়েছে।**\n\nনিচের মেনু থেকে প্রয়োজনীয় সার্ভিস সিলেক্ট করুন:\n\n🟢 **𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤:** ফাইল, ছবি, ভিডিও লিংকে রূপান্তর করতে।\n🔴 **𝐘𝐓 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝:** ইউটিউব ভিডিও ডাউনলোড করতে।`
     );
     return;
   }
 
-  // বাটন ১: File To Link (গ্রিন বাটন)
-  if (text === 'File To Link' || text === '📁 File To Link Generate' || text === '/file') {
+  // বাটন ১: 𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤 (গ্রিন বাটন)
+  if (text === '𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤' || text === 'File To Link' || text === '/file') {
     userModes.set(String(senderId), 'file');
     await sendColoredMenu(chatId, `🟢 **ফাইল টু লিংক মোড সক্রিয় হয়েছে!**\n\nএখন যেকোনো **ফাইল, পিডিএফ, ভিডিও বা ছবি (১০০ এমবি পর্যন্ত)** পাঠান। সরাসরি ১-ক্লিক ডাউনলোড লিংক তৈরি করে দেওয়া হবে।`);
     return;
   }
 
-  // বাটন ২: YouTube Video Download (লাল বাটন)
-  if (text === 'YouTube Video Download' || text === '▶️ YT Video Download' || text === '/yt') {
+  // বাটন ২: 𝐘𝐓 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝 (লাল বাটন)
+  if (text === '𝐘𝐓 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝' || text === 'YouTube Video Download' || text === '/yt') {
     userModes.set(String(senderId), 'yt');
     await sendColoredMenu(chatId, `🔴 **ইউটিউব ডাউনলোড মোড সক্রিয় হয়েছে!**\n\nএখন আপনার কাঙ্ক্ষিত ইউটিউব ভিডিওর লিংক পাঠান।`);
     return;
@@ -115,7 +115,7 @@ client.addEventHandler(async (event) => {
 
   const currentMode = userModes.get(String(senderId)) || 'file';
   if (currentMode === 'yt') {
-    await message.reply({ message: '⚠️ আপনি বর্তমানে **ইউটিউব মোডে** আছেন! ফাইল আপলোড করতে নিচের সবুজ **"File To Link"** বাটনে চাপ দিন।' });
+    await message.reply({ message: '⚠️ আপনি বর্তমানে **ইউটিউব মোডে** আছেন! ফাইল আপলোড করতে নিচের সবুজ **"𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤"** বাটনে চাপ দিন।' });
     return;
   }
 
