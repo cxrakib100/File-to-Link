@@ -4,6 +4,44 @@ const BASE_URL = (process.env.BASE_URL || '').replace(/\/$/, '');
 // ৫০০ মেগাবাইট সাইজ লিমিট
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
 
+// ১০০% লাইভ ভেরিফাইড শর্ট লিংক তৈরির ইঞ্জিন
+async function getVerifiedShortLink(longUrl) {
+  // ১. TinyURL ইঞ্জিন (বিজ্ঞাপন ছাড়া সরাসরি স্থায়ী রিডাইরেক্ট)
+  try {
+    const res = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(longUrl)}`, {
+      signal: AbortSignal.timeout(4000)
+    });
+    if (res.ok) {
+      const short = (await res.text()).trim();
+      if (short.startsWith('https://')) return short;
+    }
+  } catch (e) {}
+
+  // ২. is.gd ইঞ্জিন (ব্যাকআপ ফাস্ট রিডাইরেক্ট)
+  try {
+    const res = await fetch(`https://is.gd/create.php?format=json&url=${encodeURIComponent(longUrl)}`, {
+      signal: AbortSignal.timeout(4000)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.shorturl) return data.shorturl;
+    }
+  } catch (e) {}
+
+  // ৩. da.gd ইঞ্জিন (৩য় ব্যাকআপ)
+  try {
+    const res = await fetch(`https://da.gd/s?url=${encodeURIComponent(longUrl)}`, {
+      signal: AbortSignal.timeout(4000)
+    });
+    if (res.ok) {
+      const short = (await res.text()).trim();
+      if (short.startsWith('https://')) return short;
+    }
+  } catch (e) {}
+
+  return longUrl; // কোনো কারণে শর্টনার ডাউন থাকলে মেইন লিংক রিটার্ন করবে
+}
+
 // ফাইল গ্রহণ করে লিংক তৈরি করা
 async function processFileUpload(client, message) {
   try {
@@ -45,7 +83,7 @@ async function processFileUpload(client, message) {
       return;
     }
 
-    // ২. ক্লাউড টু ক্লাউড মিডিয়া ট্রান্সফার (যা ৯২ এমবির ক্ষেত্রে সফল হয়েছিল)
+    // ২. ক্লাউড টু ক্লাউড ট্রান্সফার
     const sentMsg = await client.sendFile(BIN_CHANNEL, {
       file: message.media,
       caption: message.text || '',
@@ -57,14 +95,27 @@ async function processFileUpload(client, message) {
       throw new Error('চ্যানেল মেসেজ আইডি পাওয়া যায়নি');
     }
 
-    const downloadLink = `${BASE_URL}/dl/${channelMsgId}/${encodeURIComponent(fileName)}`;
+    // ব্র্যাকেট যুক্ত ফাইলের নাম যেন টেলিগ্রাম হাইপারলিংক না ভাঙে
+    const safeEncodedName = encodeURIComponent(fileName).replace(/\(/g, '%28').replace(/\)/g, '%29');
+    const downloadLink = `${BASE_URL}/dl/${channelMsgId}/${safeEncodedName}`;
 
+    // ৩. লাইভ শর্ট লিংক তৈরি করা
+    const shortLink = await getVerifiedShortLink(downloadLink);
+
+    // আপনার কাঙ্ক্ষিত স্টাইলে মেসেজ ফরম্যাট
     await message.reply({
-      message: `✅ **${fileType} সফলভাবে আপলোড হয়েছে!**\n\n` +
-        `📄 **নাম:** ${fileName}\n` +
-        (fileSize ? `📦 **সাইজ:** ${sizeMB} MB\n\n` : `\n`) +
-        `📥 **সরাসরি ডাউনলোড লিংক (One-Click):**\n${downloadLink}\n\n` +
-        `💡 *লিংকে ক্লিক করলেই ব্রাউজারে ফাইলটি সরাসরি নামা শুরু হবে।*`,
+      message: 
+`✅ **${fileType} সফলভাবে আপলোড হয়েছে!**
+
+📄 **নাম:** ${fileName}
+${fileSize ? `📦 **সাইজ:** ${sizeMB} MB\n\n` : `\n`}
+📥 **সরাসরি ডাউনলোড লিংক (One-Click):**
+👉 [𝐃𝐎𝐖𝐍𝐋𝐎𝐀𝐃 ✅](${downloadLink})
+
+𝐒𝐡𝐨𝐫𝐭 𝐋𝐢𝐧𝐤~👇
+${shortLink}
+
+💡 *লিংকে ক্লিক করলেই ব্রাউজারে ফাইলটি সরাসরি নামা শুরু হবে।*`,
       parseMode: 'md',
     });
   } catch (err) {
