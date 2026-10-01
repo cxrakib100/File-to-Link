@@ -3,43 +3,59 @@ const path = require('path');
 const { pipeline } = require('stream/promises');
 const { Readable } = require('stream');
 
-// আল্ট্রাফাস্ট ডিরেক্ট এপিআই দিয়ে ভিডিও ডাউনলোড লিংক আনা
-async function getDirectVideoUrl(fullYtUrl) {
-  // ১. প্রাথমিক ইঞ্জিন (VKR High Speed Engine)
+// ৪টি শক্তিশালী ডিরেক্ট এপিআই ক্লাস্টার (একটি ব্যর্থ হলে অন্যটি চেষ্টা করবে)
+async function getDirectVideoUrl(fullYtUrl, videoId) {
+  // ১. ডেলিরিয়াস এপিআই ইঞ্জিন
   try {
-    const vkrApiUrl = `https://vkrdownloader.org/server/?api_key=vkrdownloader&vkr=${encodeURIComponent(fullYtUrl)}`;
-    const res = await fetch(vkrApiUrl);
+    const res = await fetch(`https://delirius-apiofc.vercel.app/download/ytmp4?url=${encodeURIComponent(fullYtUrl)}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+    });
     if (res.ok) {
       const data = await res.json();
-      const formats = data.formats || data.data?.formats || [];
-      
-      // অডিও সহ সেরা কোয়ালিটির MP4 ভিডিও খোঁজা (1080p -> 720p -> বেস্ট)
-      const best1080 = formats.find(f => (f.format_id === '1080p' || f.format_note?.includes('1080')) && f.url && f.ext === 'mp4');
-      const best720 = formats.find(f => (f.format_id === '720p' || f.format_note?.includes('720')) && f.url && f.ext === 'mp4');
-      const fallbackBest = formats.find(f => f.url && f.ext === 'mp4');
-
-      const selected = best1080 || best720 || fallbackBest;
-      if (selected && selected.url) {
-        return { url: selected.url, title: data.title || 'YouTube Video' };
-      }
+      const dl = data.data?.download?.url || data.download?.url;
+      if (dl) return { url: dl, title: data.data?.title || 'YouTube Video' };
     }
-  } catch (e) {
-    console.error('VKR Engine error:', e);
-  }
+  } catch (e) {}
 
-  // ২. ব্যাকআপ ইঞ্জিন (Cobalt Cluster)
-  const servers = ['https://cobalt.meowing.de', 'https://co.wuk.sh'];
-  for (const s of servers) {
+  // ২. সিপুতজেডএক্স সেভফ্রম ইঞ্জিন
+  try {
+    const res = await fetch(`https://api.siputzx.my.id/api/d/savefrom?url=${encodeURIComponent(fullYtUrl)}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const urls = data.data?.url || data.result?.url || data.data || [];
+      const videoObj = Array.isArray(urls) 
+        ? urls.find(u => u.url && (u.ext === 'mp4' || u.type?.includes('mp4') || !u.no_audio)) || urls[0]
+        : null;
+      if (videoObj?.url) return { url: videoObj.url, title: data.data?.meta?.title || 'YouTube Video' };
+    }
+  } catch (e) {}
+
+  // ৩. রাইজুমি ইঞ্জিন
+  try {
+    const res = await fetch(`https://api.ryzumi.net/api/downloader/all-in-one?url=${encodeURIComponent(fullYtUrl)}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const dl = data.result?.video || data.result?.url || (Array.isArray(data.result) && data.result[0]?.url);
+      if (dl) return { url: dl, title: data.result?.title || 'YouTube Video' };
+    }
+  } catch (e) {}
+
+  // ৪. ইনভিডিয়াস ক্লাউড স্ট্রিম ইঞ্জিন
+  const invidiousHosts = ['invidious.nerdvpn.de', 'inv.nadeko.net', 'invidious.private.coffee'];
+  for (const host of invidiousHosts) {
     try {
-      const cRes = await fetch(`${s}/`, {
-        method: 'POST',
-        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: fullYtUrl, videoQuality: '1080', downloadMode: 'auto' })
+      const res = await fetch(`https://${host}/api/v1/videos/${videoId}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
       });
-      if (cRes.ok) {
-        const cData = await cRes.json();
-        const dl = cData.url || (cData.picker && cData.picker[0]?.url);
-        if (dl) return { url: dl, title: 'YouTube Video' };
+      if (res.ok) {
+        const data = await res.json();
+        const formats = data.formatStreams?.reverse() || [];
+        const chosen = formats.find(f => f.url && f.container === 'mp4') || formats[0];
+        if (chosen?.url) return { url: chosen.url, title: data.title || 'YouTube Video' };
       }
     } catch (e) {}
   }
@@ -58,31 +74,37 @@ async function handleYouTubeDownload(client, chatId, text) {
   const fullYtUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
   const statusMsg = await client.sendMessage(chatId, {
-    message: '⚡ **ইউটিউব থেকে অডিও সহ ফুল এইচডি ভিডিও প্রস্তুত করা হচ্ছে... কিছুক্ষণ অপেক্ষা করুন।**',
+    message: '⚡ **ইউটিউব থেকে অডিও সহ ফুল এইচডি ভিডিও প্রসেস করা হচ্ছে... অনুগ্রহ করে কিছুক্ষণ অপেক্ষা করুন।**',
     parseMode: 'md',
   });
 
   try {
-    const videoData = await getDirectVideoUrl(fullYtUrl);
+    const videoData = await getDirectVideoUrl(fullYtUrl, videoId);
 
     if (!videoData || !videoData.url) {
-      throw new Error('ভিডিও ডাউনলোড লিংক প্রস্তুত করা যায়নি');
+      throw new Error('কোনো ইঞ্জিন থেকেই ভিডিও লিংক পাওয়া যায়নি');
     }
 
     const tempFilePath = path.join('/tmp', `yt_${videoId}_${Date.now()}.mp4`);
-    const streamRes = await fetch(videoData.url);
+    const streamRes = await fetch(videoData.url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+    });
+    
     if (!streamRes.ok) throw new Error('ভিডিও ফাইল নামাতে সমস্যা হয়েছে');
 
     const fileStream = fs.createWriteStream(tempFilePath);
     await pipeline(Readable.fromWeb(streamRes.body), fileStream);
 
+    const stats = fs.statSync(tempFilePath);
+    if (stats.size === 0) throw new Error('ফাইল খালি এসেছে');
+
     await client.editMessage(chatId, {
       message: statusMsg.id,
-      text: '📤 **ভিডিও সফলভাবে প্রসেস হয়েছে! টেলিগ্রামে আপলোড করা হচ্ছে...**',
+      text: '📤 **ভিডিও সফলভাবে প্রসেস হয়েছে! আপনার টেলিগ্রাম চ্যাটে আপলোড করা হচ্ছে...**',
       parseMode: 'md',
     });
 
-    // শুধুমাত্র এই ইউজারের চ্যাটেই ভিডিওটি পাঠানো হচ্ছে (চ্যানেলে যাবে না)
+    // শুধুমাত্র এই ইউজারের চ্যাটেই ভিডিও পাঠানো হচ্ছে (চ্যানেলে যাবে না)
     await client.sendFile(chatId, {
       file: tempFilePath,
       caption: `🎬 **${videoData.title}**\n\n🔗 https://youtu.be/${videoId}`,
@@ -95,7 +117,7 @@ async function handleYouTubeDownload(client, chatId, text) {
 
     return true;
   } catch (err) {
-    console.error('YouTube Processing Error:', err);
+    console.error('YouTube Processing Error Details:', err);
 
     await client.editMessage(chatId, {
       message: statusMsg.id,
