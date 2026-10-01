@@ -3,12 +3,92 @@ const path = require('path');
 const { pipeline } = require('stream/promises');
 const { Readable } = require('stream');
 
-// ৪টি শক্তিশালী ডিরেক্ট এপিআই ক্লাস্টার (একটি ব্যর্থ হলে অন্যটি চেষ্টা করবে)
+// ১. কোবাল্ট আল্ট্রাফাস্ট ক্লাস্টার (১৬টি সার্ভার)
+const COBALT_SERVERS = [
+  'https://cobalt.meowing.de',
+  'https://co.wuk.sh',
+  'https://cobalt.canine.tools',
+  'https://co.meow.gb.net',
+  'https://co.tskau.team',
+  'https://api.co.rooot.gay',
+  'https://capi.oak.li',
+  'https://cobalt.synzr.space',
+  'https://api-dl.cgm.rs',
+  'https://cobalt.api.timelessnesses.me',
+  'https://cobalt-api.hyper.lol',
+  'https://co.kelig.me',
+  'https://nyc1.coapi.ggtyler.dev',
+  'https://cal1.coapi.ggtyler.dev',
+  'https://par1.coapi.ggtyler.dev',
+  'https://cobalt-api.ayo.tf'
+];
+
+// ২. ইনভিডিয়াস গ্লোবাল ক্লাস্টার (৮টি সার্ভার)
+const INVIDIOUS_SERVERS = [
+  'inv.nadeko.net',
+  'invidious.nerdvpn.de',
+  'invidious.private.coffee',
+  'yt.artemislena.eu',
+  'invidious.jing.rocks',
+  'invidious.drgns.space',
+  'invidious.lunar.icu',
+  'yewtu.be'
+];
+
+// ২৫+ এপিআই দিয়ে দ্রুত ভিডিও লিংক পাওয়ার ইঞ্জিন
 async function getDirectVideoUrl(fullYtUrl, videoId) {
-  // ১. ডেলিরিয়াস এপিআই ইঞ্জিন
+  // ইঞ্জিন ১: Cobalt ক্লাস্টার টেস্ট (৪ সেকেন্ড টাইমআউট দিয়ে ফাস্ট স্কিপ)
+  for (const server of COBALT_SERVERS) {
+    try {
+      const res = await fetch(`${server}/`, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+        },
+        body: JSON.stringify({
+          url: fullYtUrl,
+          videoQuality: '1080',
+          downloadMode: 'auto'
+        }),
+        signal: AbortSignal.timeout(4000) // ৪ সেকেন্ডের মধ্যে রেসপন্স না দিলে পরেরটায় যাবে
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const streamUrl = data.url || (data.picker && data.picker[0]?.url);
+        if (streamUrl) return { url: streamUrl, title: 'YouTube Video' };
+      }
+    } catch (e) {
+      continue;
+    }
+  }
+
+  // ইঞ্জিন ২: Invidious ক্লাস্টার টেস্ট
+  for (const host of INVIDIOUS_SERVERS) {
+    try {
+      const res = await fetch(`https://${host}/api/v1/videos/${videoId}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        signal: AbortSignal.timeout(4000)
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const formats = data.formatStreams?.reverse() || [];
+        const chosen = formats.find(f => f.url && f.container === 'mp4') || formats[0];
+        if (chosen?.url) return { url: chosen.url, title: data.title || 'YouTube Video' };
+      }
+    } catch (e) {
+      continue;
+    }
+  }
+
+  // ইঞ্জিন ৩: ব্যাকআপ REST এপিআই
   try {
     const res = await fetch(`https://delirius-apiofc.vercel.app/download/ytmp4?url=${encodeURIComponent(fullYtUrl)}`, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(5000)
     });
     if (res.ok) {
       const data = await res.json();
@@ -17,10 +97,10 @@ async function getDirectVideoUrl(fullYtUrl, videoId) {
     }
   } catch (e) {}
 
-  // ২. সিপুতজেডএক্স সেভফ্রম ইঞ্জিন
   try {
     const res = await fetch(`https://api.siputzx.my.id/api/d/savefrom?url=${encodeURIComponent(fullYtUrl)}`, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(5000)
     });
     if (res.ok) {
       const data = await res.json();
@@ -32,38 +112,10 @@ async function getDirectVideoUrl(fullYtUrl, videoId) {
     }
   } catch (e) {}
 
-  // ৩. রাইজুমি ইঞ্জিন
-  try {
-    const res = await fetch(`https://api.ryzumi.net/api/downloader/all-in-one?url=${encodeURIComponent(fullYtUrl)}`, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const dl = data.result?.video || data.result?.url || (Array.isArray(data.result) && data.result[0]?.url);
-      if (dl) return { url: dl, title: data.result?.title || 'YouTube Video' };
-    }
-  } catch (e) {}
-
-  // ৪. ইনভিডিয়াস ক্লাউড স্ট্রিম ইঞ্জিন
-  const invidiousHosts = ['invidious.nerdvpn.de', 'inv.nadeko.net', 'invidious.private.coffee'];
-  for (const host of invidiousHosts) {
-    try {
-      const res = await fetch(`https://${host}/api/v1/videos/${videoId}`, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const formats = data.formatStreams?.reverse() || [];
-        const chosen = formats.find(f => f.url && f.container === 'mp4') || formats[0];
-        if (chosen?.url) return { url: chosen.url, title: data.title || 'YouTube Video' };
-      }
-    } catch (e) {}
-  }
-
   return null;
 }
 
-// সরাসরি টেলিগ্রাম বটে ভিডিও পাঠানোর মূল ফাংশন
+// মূল ফাংশন
 async function handleYouTubeDownload(client, chatId, text) {
   const ytRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
   const ytMatch = text.match(ytRegex);
@@ -90,28 +142,28 @@ async function handleYouTubeDownload(client, chatId, text) {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
     });
     
-    if (!streamRes.ok) throw new Error('ভিডিও ফাইল নামাতে সমস্যা হয়েছে');
+    if (!streamRes.ok) throw new Error('ভিডিও ফাইল ডাউনলোড করা যায়নি');
 
     const fileStream = fs.createWriteStream(tempFilePath);
     await pipeline(Readable.fromWeb(streamRes.body), fileStream);
 
     const stats = fs.statSync(tempFilePath);
-    if (stats.size === 0) throw new Error('ফাইল খালি এসেছে');
+    if (stats.size === 0) throw new Error('ফাইল শূন্য এসেছে');
 
     await client.editMessage(chatId, {
       message: statusMsg.id,
-      text: '📤 **ভিডিও সফলভাবে প্রসেস হয়েছে! আপনার টেলিগ্রাম চ্যাটে আপলোড করা হচ্ছে...**',
+      text: '📤 **ভিডিও সফলভাবে তৈরি হয়েছে! আপনার টেলিগ্রাম চ্যাটে পাঠানো হচ্ছে...**',
       parseMode: 'md',
     });
 
-    // শুধুমাত্র এই ইউজারের চ্যাটেই ভিডিও পাঠানো হচ্ছে (চ্যানেলে যাবে না)
+    // শুধুমাত্র ইউজারের চ্যাটেই ভিডিও পাঠানো হচ্ছে (চ্যানেলে যাবে না)
     await client.sendFile(chatId, {
       file: tempFilePath,
       caption: `🎬 **${videoData.title}**\n\n🔗 https://youtu.be/${videoId}`,
-      supportsStreaming: true, // টেলিগ্রামে সরাসরি প্লে হবে
+      supportsStreaming: true,
     });
 
-    // ক্লিনআপ
+    // ডিলিট ও ক্লিনআপ
     await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
     if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
 
