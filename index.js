@@ -3,6 +3,7 @@ const express = require('express');
 const { TelegramClient, Api } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 const { NewMessage } = require('telegram/events');
+const { Button } = require('telegram/tl/custom/button');
 
 // মডিউলসমূহ
 const { isUserJoined, sendJoinPrompt } = require('./forceSub');
@@ -21,7 +22,7 @@ let botUsername = '';
 
 const userModes = new Map();
 
-// ১. প্রধান মেনু কিবোর্ড (সবুজ ও লাল বাটন)
+// প্রধান মেনুর রঙিন বাটন কিবোর্ড
 async function sendMainMenu(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
@@ -48,8 +49,8 @@ async function sendMainMenu(chatId, text) {
   }
 }
 
-// ২. সাব-মেনু কিবোর্ড (শুধুমাত্র '𝐁𝐚𝐜𝐤' বাটন)
-async function sendBackMenu(chatId, text) {
+// সাব-মেনু কিবোর্ড (নিচে ব্যাক বাটন)
+async function sendBackKeyboard(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
@@ -62,7 +63,7 @@ async function sendBackMenu(chatId, text) {
         reply_markup: {
           keyboard: [
             [
-              { text: "𝐁𝐚𝐜𝐤", style: "danger" } // 🔴 উজ্জ্বল লাল/কমলা ব্যাক বাটন
+              { text: "🔙 𝐁𝐚𝐜𝐤", style: "danger" }
             ]
           ],
           resize_keyboard: true
@@ -70,15 +71,16 @@ async function sendBackMenu(chatId, text) {
       })
     });
   } catch (err) {
-    console.error('sendBackMenu error:', err);
+    console.error('sendBackKeyboard error:', err);
   }
 }
 
-// ৩. ইনলাইন ভেরিফিকেশন হ্যান্ডলার
+// ১. ইনলাইন বাটন ইভেন্ট (ভেরিফিকেশন এবং গোল চাকা ঘুরিয়ে স্মুথ ব্যাক)
 client.addEventHandler(async (update) => {
   if (update.className === 'UpdateBotCallbackQuery') {
     const data = update.data ? update.data.toString() : '';
 
+    // ক) চ্যানেল ভেরিফিকেশন বাটন
     if (data === 'check_sub') {
       const senderId = update.userId;
       const joined = await isUserJoined(client, senderId);
@@ -112,10 +114,40 @@ client.addEventHandler(async (update) => {
         );
       }
     }
+
+    // খ) স্মুথ ব্যাক বাটন (চাকার মতো ঘুরবে এবং মেসেজ কোনো লেখা ছাড়া নিজে থেকেই হোমস্ক্রিনে ফিরবে)
+    if (data === 'smooth_back') {
+      const senderId = update.userId;
+      userModes.set(String(senderId), 'main');
+
+      // গোল চাকার ঘূর্ণন শেষ করা
+      await client.invoke(
+        new Api.messages.SetBotCallbackAnswer({
+          queryId: update.queryId,
+          message: 'হোমস্ক্রিনে ফিরে যাওয়া হচ্ছে...',
+        })
+      );
+
+      // কোনো মেসেজ টাইপ না হয়ে স্মুথলি আগের মেসেজটি হোমস্ক্রিন হয়ে যাবে
+      try {
+        await client.editMessage(update.peer, {
+          message: update.msgId,
+          text: `🏠 **প্রধান মেনু**\n\nনিচের মেনু বাটন থেকে আপনার সার্ভিস বেছে নিন:`,
+          buttons: undefined, // ইনলাইন বাটন রিমুভ
+          parseMode: 'md',
+        });
+      } catch (e) {}
+
+      // প্রধান মেনুর বাটন দুটি নিচে ফেরত আনা
+      await sendMainMenu(
+        senderId,
+        `🟢 **𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤:** ফাইল লিংকে রূপান্তর করতে।\n🔴 **𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨:** টিকটক ভিডিও ডাউনলোড করতে।`
+      );
+    }
   }
 });
 
-// ৪. টেক্সট ও মেনু হ্যান্ডলার
+// ২. টেক্সট ও মেনু হ্যান্ডলার
 client.addEventHandler(async (event) => {
   const message = event.message;
   if (!message) return;
@@ -131,7 +163,7 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // /start কমান্ড দিলে প্রধান মেনু দেখানো
+  // /start কমান্ড
   if (text.startsWith('/start')) {
     userModes.set(String(senderId), 'main');
     await sendMainMenu(
@@ -141,27 +173,40 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // বাটন ১: 𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤 চাপলে (প্রধান মেনুর বাটনগুলো সরে গিয়ে শুধু '𝐁𝐚𝐜𝐤' বাটন আসবে)
+  // বাটন ১: 𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤 চাপলে
   if (text.includes('𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤') || text.includes('File To Link') || text === '/file') {
     userModes.set(String(senderId), 'file');
-    await sendBackMenu(
-      chatId,
-      `🟢 **ফাইল টু লিংক মোড সক্রিয় হয়েছে!**\n\nএখন যেকোনো **ফাইল, পিডিএফ, ভিডিও বা ছবি (১০০ এমবি পর্যন্ত)** পাঠান। সরাসরি ১-ক্লিক ডাউনলোড লিংক তৈরি করে দেওয়া হবে।\n\n💡 *প্রধান মেনুতে ফিরে যেতে চাইলে নিচে '❌ 𝐁𝐚𝐜𝐤' বাটনে চাপ দিন।*`
-    );
+    
+    // মেসেজের সাথেই ইনলাইন ব্যাক বাটন যুক্ত থাকবে যা চাপলে চাকা ঘুরবে এবং স্মুথ ব্যাক নেবে
+    await client.sendMessage(chatId, {
+      message: `🟢 **ফাইল টু লিংক মোড সক্রিয় হয়েছে!**\n\nএখন যেকোনো **ফাইল, পিডিএফ, ভিডিও বা ছবি (১০০ এমবি পর্যন্ত)** পাঠান। সরাসরি ১-ক্লিক ডাউনলোড লিংক তৈরি করে দেওয়া হবে।`,
+      buttons: [
+        [Button.inline('🔙 𝐁𝐚𝐜𝐤', Buffer.from('smooth_back'))] // ইনলাইন স্পিনিং ব্যাক বাটন
+      ],
+      parseMode: 'md',
+    });
+
+    await sendBackKeyboard(chatId, '💡 যেকোনো সময় হোমস্ক্রিনে ফিরতে ব্যাক বাটন চাপুন।');
     return;
   }
 
-  // বাটন ২: 𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨 চাপলে (শুধু '𝐁𝐚𝐜𝐤' বাটন আসবে)
+  // বাটন ২: 𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨 চাপলে
   if (text.includes('𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨') || text.includes('Tiktok Video') || text === '/tiktok') {
     userModes.set(String(senderId), 'tiktok');
-    await sendBackMenu(
-      chatId,
-      `🔴 **টিকটক ডাউনলোড মোড সক্রিয় হয়েছে!**\n\nএখন যেকোনো টিকটক ভিডিওর লিংক পাঠান। সরাসরি এই চ্যাটেই ওয়াটারমার্ক ছাড়া ফুল এইচডি ভিডিও পাঠিয়ে দেওয়া হবে।\n\n💡 *প্রধান মেনুতে ফিরে যেতে চাইলে নিচে '❌ 𝐁𝐚𝐜𝐤' বাটনে চাপ দিন।*`
-    );
+    
+    await client.sendMessage(chatId, {
+      message: `🔴 **টিকটক ডাউনলোড মোড সক্রিয় হয়েছে!**\n\nএখন যেকোনো টিকটক ভিডিওর লিংক পাঠান। সরাসরি এই চ্যাটেই ওয়াটারমার্ক ছাড়া ফুল এইচডি ভিডিও পাঠিয়ে দেওয়া হবে।`,
+      buttons: [
+        [Button.inline('🔙 𝐁𝐚𝐜𝐤', Buffer.from('smooth_back'))] // ইনলাইন স্পিনিং ব্যাক বাটন
+      ],
+      parseMode: 'md',
+    });
+
+    await sendBackKeyboard(chatId, '💡 যেকোনো সময় হোমস্ক্রিনে ফিরতে ব্যাক বাটন চাপুন।');
     return;
   }
 
-  // বাটন ৩: '𝐁𝐚𝐜𝐤' চাপলে (আবার আগের প্রধান মেনুর দুটি বাটন ফিরে আসবে)
+  // কীবোর্ডের '🔙 𝐁𝐚𝐜𝐤' বাটনে চাপ দিলে
   if (text.includes('𝐁𝐚𝐜𝐤') || text.includes('Back') || text === '/back') {
     userModes.set(String(senderId), 'main');
     await sendMainMenu(
@@ -183,7 +228,7 @@ client.addEventHandler(async (event) => {
   if (hasRealFile) {
     const currentMode = userModes.get(String(senderId)) || 'file';
     if (currentMode === 'tiktok') {
-      await message.reply({ message: '⚠️ আপনি **টিকটক মোডে** আছেন! ফাইল আপলোড করতে নিচে **"❌ 𝐁𝐚𝐜𝐤"** বাটনে চাপ দিয়ে **"𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤"** সিলেক্ট করুন।' });
+      await message.reply({ message: '⚠️ আপনি **টিকটক মোডে** আছেন! ফাইল আপলোড করতে নিচে **"🔙 𝐁𝐚𝐜𝐤"** বাটনে চাপ দিয়ে **"𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤"** সিলেক্ট করুন।' });
       return;
     }
 
