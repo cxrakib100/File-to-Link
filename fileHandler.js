@@ -1,7 +1,7 @@
 const BIN_CHANNEL = process.env.BIN_CHANNEL;
 const BASE_URL = (process.env.BASE_URL || '').replace(/\/$/, '');
 
-// ৫০০ মেগাবাইট সাইজ লিমিট (বাইট হিসেবে)
+// ৫০০ মেগাবাইট সাইজ লিমিট
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
 
 // ফাইল গ্রহণ করে লিংক তৈরি করা
@@ -29,7 +29,7 @@ async function processFileUpload(client, message) {
 
     const sizeMB = fileSize ? (fileSize / (1024 * 1024)).toFixed(2) : '0';
 
-    // ১. ৫০০ এমবির বেশি হলে বট নিজে থেকে সতর্কবার্তা দেবে
+    // ১. ৫০০ এমবির বেশি হলে সতর্কবার্তা দেওয়া
     if (fileSize > MAX_FILE_SIZE) {
       await message.reply({
         message: 
@@ -45,14 +45,13 @@ async function processFileUpload(client, message) {
       return;
     }
 
-    // ২. ৫০০ এমবির ভেতরের ফাইল টেলিগ্রাম ক্লাউড দিয়ে ০.১ সেকেন্ডে ফরোয়ার্ড করা
-    const forwarded = await client.forwardMessages(BIN_CHANNEL, {
-      messages: [message.id],
-      fromPeer: message.chatId,
+    // ২. ক্লাউড টু ক্লাউড মিডিয়া ট্রান্সফার (যা ৯২ এমবির ক্ষেত্রে সফল হয়েছিল)
+    const sentMsg = await client.sendFile(BIN_CHANNEL, {
+      file: message.media,
+      caption: message.text || '',
     });
 
-    const channelMsg = Array.isArray(forwarded) ? forwarded[0] : (forwarded.updates ? forwarded.updates.find(u => u.message)?.message : forwarded);
-    const channelMsgId = channelMsg?.id || forwarded[0]?.id;
+    const channelMsgId = sentMsg ? sentMsg.id : null;
 
     if (!channelMsgId) {
       throw new Error('চ্যানেল মেসেজ আইডি পাওয়া যায়নি');
