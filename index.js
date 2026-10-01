@@ -21,14 +21,15 @@ let botUsername = '';
 
 const userModes = new Map();
 
-// আপনার স্টাইলিশ বোল্ড ফন্ট ও রঙিন বাটন
+// অটোমেটিক্যালি রঙিন বাটন কিবোর্ড সহ মেসেজ পাঠানোর ফাংশন
 async function sendColoredMenu(chatId, text) {
   try {
+    const cleanId = String(chatId).replace(/[^0-9-]/g, '');
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        chat_id: String(chatId),
+        chat_id: cleanId,
         text: text,
         parse_mode: 'Markdown',
         reply_markup: {
@@ -47,7 +48,7 @@ async function sendColoredMenu(chatId, text) {
   }
 }
 
-// ১. ইনলাইন বাটন ভেরিফিকেশন (চাকার মতো ঘুরবে ও অ্যালার্ট দেবে)
+// ১. ইনলাইন ভেরিফিকেশন হ্যান্ডলার (অটোমেটিক্যালি ইন্টারফেস ওপেন করবে)
 client.addEventHandler(async (update) => {
   if (update.className === 'UpdateBotCallbackQuery') {
     const data = update.data ? update.data.toString() : '';
@@ -57,7 +58,7 @@ client.addEventHandler(async (update) => {
       const joined = await isUserJoined(client, senderId);
 
       if (joined) {
-        // চাকার ঘূর্ণন শেষ করে সাকসেস মেসেজ দেওয়া
+        // চাকার ঘূর্ণন শেষ করা
         await client.invoke(
           new Api.messages.SetBotCallbackAnswer({
             queryId: update.queryId,
@@ -66,34 +67,25 @@ client.addEventHandler(async (update) => {
           })
         );
 
-        // আগের মেসেজটি পরিবর্তন করে স্বাগতম মেসেজ বসানো (নতুন কোনো স্টার্ট হবে না)
+        // আগের জয়েন প্রম্পট মেসেজটি মুছে দেওয়া যাতে চ্যাট পরিষ্কার থাকে
         try {
-          await client.editMessage(update.peer, {
-            message: update.msgId,
-            text: 
-`🎉 **স্বাগতম! চ্যানেল ভেরিফিকেশন সফল হয়েছে।**
-
-⚡ **বটের সব সার্ভিস এখন সক্রিয়!**
-নিচের মেনু বাটন ব্যবহার করে আপনার প্রয়োজনীয় কাজটি বেছে নিন।`,
-            parseMode: 'md',
-          });
+          await client.deleteMessages(update.peer, [update.msgId], { revoke: true });
         } catch (e) {}
 
-        // রঙিন বাটনগুলো নিচে পাঠিয়ে দেওয়া
+        // কোনো স্টার্ট ছাড়াই সাথে সাথে অটোমেটিক্যালি রঙিন বাটন ইন্টারফেস পাঠিয়ে দেওয়া
         userModes.set(String(senderId), 'file');
         await sendColoredMenu(
-          update.peer,
-          `🟢 **𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤:** ১০০ এমবি পর্যন্ত ফাইল সরাসরি ডাউনলোডের লিংক বানাতে।\n🔴 **𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨:** টিকটক ভিডিও ওয়াটারমার্ক ছাড়া সরাসরি ডাউনলোড করতে।`
+          senderId,
+          `🎉 **স্বাগতম! চ্যানেল ভেরিফিকেশন সফল হয়েছে।**\n\n⚡ **বটের সব সার্ভিস এখন সম্পূর্ণ সক্রিয়!**\n\nনিচের বাটন থেকে প্রয়োজনীয় কাজটি বেছে নিন:\n🟢 **𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤:** ফাইল, ছবি, ভিডিও সরাসরি লিংকে রূপান্তর করতে।\n🔴 **𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨:** টিকটক ভিডিও ওয়াটারমার্ক ছাড়া ডাউনলোড করতে।`
         );
 
       } else {
-        // জয়েন না করলে চাকার ঘূর্ণন শেষে পপ-আপ অ্যালার্ট দেওয়া
-        // মেসেজটি নড়বে না, ওখানেই আটকে থাকবে!
+        // জয়েন না করলে ওখানেই আটকে থাকবে এবং ওয়ার্নিং অ্যালার্ট দেবে
         await client.invoke(
           new Api.messages.SetBotCallbackAnswer({
             queryId: update.queryId,
             message: '⚠️ আপনি এখনো চ্যানেলে জয়েন করেননি! দয়া করে আগে চ্যানেলে জয়েন করুন।',
-            alert: true, // স্ক্রিনে স্পষ্ট ওয়ার্নিং পপ-আপ ভাসবে
+            alert: true,
           })
         );
       }
@@ -122,7 +114,7 @@ client.addEventHandler(async (event) => {
     userModes.set(String(senderId), 'file');
     await sendColoredMenu(
       chatId,
-      `🎉 **স্বাগতম! চ্যানেল ভেরিফিকেশন সফল হয়েছে।**\n\nনিচের মেনু থেকে প্রয়োজনীয় সার্ভিস সিলেক্ট করুন:\n\n🟢 **𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤:** ফাইল, ছবি, ভিডিও লিংকে রূপান্তর করতে।\n🔴 **𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨:** টিকটক ভিডিও ওয়াটারমার্ক ছাড়া সরাসরি ডাউনলোড করতে।`
+      `🎉 **স্বাগতম! চ্যানেল ভেরিফিকেশন সফল হয়েছে।**\n\n⚡ **বটের সব সার্ভিস এখন সম্পূর্ণ সক্রিয়!**\n\nনিচের বাটন থেকে প্রয়োজনীয় কাজটি বেছে নিন:\n🟢 **𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤:** ফাইল, ছবি, ভিডিও সরাসরি লিংকে রূপান্তর করতে।\n🔴 **𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨:** টিকটক ভিডিও ওয়াটারমার্ক ছাড়া ডাউনলোড করতে।`
     );
     return;
   }
@@ -160,7 +152,7 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // অন্যান্য সাধারণ টেক্সটের ক্ষেত্রে
+  // সাধারণ টেক্সটের ক্ষেত্রে
   const currentMode = userModes.get(String(senderId)) || 'file';
   if (currentMode === 'tiktok') {
     await message.reply({ message: '⚠️ অনুগ্রহ করে একটি সঠিক টিকটক ভিডিওর লিংক পাঠান (যেমন: https://vt.tiktok.com/...)' });
