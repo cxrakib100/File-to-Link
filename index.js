@@ -89,7 +89,7 @@ client.addEventHandler(async (event) => {
   const isYouTubeLink = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)/.test(text);
 
   if (isYouTubeLink) {
-    await handleYouTubeDownload(client, chatId, text);
+    await handleYouTubeDownload(client, chatId, text, message);
     return;
   }
 
