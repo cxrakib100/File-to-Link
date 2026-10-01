@@ -21,8 +21,8 @@ let botUsername = '';
 
 const userModes = new Map();
 
-// অটোমেটিক্যালি রঙিন বাটন কিবোর্ড সহ মেসেজ পাঠানোর ফাংশন
-async function sendColoredMenu(chatId, text) {
+// ১. প্রধান মেনু কিবোর্ড (সবুজ ও লাল বাটন)
+async function sendMainMenu(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
@@ -44,11 +44,37 @@ async function sendColoredMenu(chatId, text) {
       })
     });
   } catch (err) {
-    console.error('Menu send error:', err);
+    console.error('sendMainMenu error:', err);
   }
 }
 
-// ১. ইনলাইন ভেরিফিকেশন হ্যান্ডলার (অটোমেটিক্যালি ইন্টারফেস ওপেন করবে)
+// ২. সাব-মেনু কিবোর্ড (শুধুমাত্র '𝐁𝐚𝐜𝐤' বাটন)
+async function sendBackMenu(chatId, text) {
+  try {
+    const cleanId = String(chatId).replace(/[^0-9-]/g, '');
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: cleanId,
+        text: text,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          keyboard: [
+            [
+              { text: "𝐁𝐚𝐜𝐤", style: "danger" } // 🔴 উজ্জ্বল লাল/কমলা ব্যাক বাটন
+            ]
+          ],
+          resize_keyboard: true
+        }
+      })
+    });
+  } catch (err) {
+    console.error('sendBackMenu error:', err);
+  }
+}
+
+// ৩. ইনলাইন ভেরিফিকেশন হ্যান্ডলার
 client.addEventHandler(async (update) => {
   if (update.className === 'UpdateBotCallbackQuery') {
     const data = update.data ? update.data.toString() : '';
@@ -58,7 +84,6 @@ client.addEventHandler(async (update) => {
       const joined = await isUserJoined(client, senderId);
 
       if (joined) {
-        // চাকার ঘূর্ণন শেষ করা
         await client.invoke(
           new Api.messages.SetBotCallbackAnswer({
             queryId: update.queryId,
@@ -67,20 +92,17 @@ client.addEventHandler(async (update) => {
           })
         );
 
-        // আগের জয়েন প্রম্পট মেসেজটি মুছে দেওয়া যাতে চ্যাট পরিষ্কার থাকে
         try {
           await client.deleteMessages(update.peer, [update.msgId], { revoke: true });
         } catch (e) {}
 
-        // কোনো স্টার্ট ছাড়াই সাথে সাথে অটোমেটিক্যালি রঙিন বাটন ইন্টারফেস পাঠিয়ে দেওয়া
-        userModes.set(String(senderId), 'file');
-        await sendColoredMenu(
+        userModes.set(String(senderId), 'main');
+        await sendMainMenu(
           senderId,
           `🎉 **স্বাগতম! চ্যানেল ভেরিফিকেশন সফল হয়েছে।**\n\n⚡ **বটের সব সার্ভিস এখন সম্পূর্ণ সক্রিয়!**\n\nনিচের বাটন থেকে প্রয়োজনীয় কাজটি বেছে নিন:\n🟢 **𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤:** ফাইল, ছবি, ভিডিও সরাসরি লিংকে রূপান্তর করতে।\n🔴 **𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨:** টিকটক ভিডিও ওয়াটারমার্ক ছাড়া ডাউনলোড করতে।`
         );
 
       } else {
-        // জয়েন না করলে ওখানেই আটকে থাকবে এবং ওয়ার্নিং অ্যালার্ট দেবে
         await client.invoke(
           new Api.messages.SetBotCallbackAnswer({
             queryId: update.queryId,
@@ -93,7 +115,7 @@ client.addEventHandler(async (update) => {
   }
 });
 
-// ২. টেক্সট ও মেনু হ্যান্ডলার
+// ৪. টেক্সট ও মেনু হ্যান্ডলার
 client.addEventHandler(async (event) => {
   const message = event.message;
   if (!message) return;
@@ -109,26 +131,43 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // /start কমান্ড দিলে
+  // /start কমান্ড দিলে প্রধান মেনু দেখানো
   if (text.startsWith('/start')) {
-    userModes.set(String(senderId), 'file');
-    await sendColoredMenu(
+    userModes.set(String(senderId), 'main');
+    await sendMainMenu(
       chatId,
-      `🎉 **স্বাগতম! চ্যানেল ভেরিফিকেশন সফল হয়েছে।**\n\n⚡ **বটের সব সার্ভিস এখন সম্পূর্ণ সক্রিয়!**\n\nনিচের বাটন থেকে প্রয়োজনীয় কাজটি বেছে নিন:\n🟢 **𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤:** ফাইল, ছবি, ভিডিও সরাসরি লিংকে রূপান্তর করতে।\n🔴 **𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨:** টিকটক ভিডিও ওয়াটারমার্ক ছাড়া ডাউনলোড করতে।`
+      `🎉 **স্বাগতম!**\n\nনিচের বাটন থেকে প্রয়োজনীয় সার্ভিস সিলেক্ট করুন:\n\n🟢 **𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤:** ফাইল, ছবি, ভিডিও সরাসরি লিংকে রূপান্তর করতে।\n🔴 **𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨:** টিকটক ভিডিও ওয়াটারমার্ক ছাড়া ডাউনলোড করতে।`
     );
     return;
   }
 
-  // বাটন ক্লিক হ্যান্ডলার
+  // বাটন ১: 𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤 চাপলে (প্রধান মেনুর বাটনগুলো সরে গিয়ে শুধু '𝐁𝐚𝐜𝐤' বাটন আসবে)
   if (text.includes('𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤') || text.includes('File To Link') || text === '/file') {
     userModes.set(String(senderId), 'file');
-    await sendColoredMenu(chatId, `🟢 **ফাইল টু লিংক মোড সক্রিয় হয়েছে!**\n\nএখন যেকোনো **ফাইল, পিডিএফ, ভিডিও বা ছবি (১০০ এমবি পর্যন্ত)** পাঠান। সরাসরি ১-ক্লিক ডাউনলোড লিংক তৈরি করে দেওয়া হবে।`);
+    await sendBackMenu(
+      chatId,
+      `🟢 **ফাইল টু লিংক মোড সক্রিয় হয়েছে!**\n\nএখন যেকোনো **ফাইল, পিডিএফ, ভিডিও বা ছবি (১০০ এমবি পর্যন্ত)** পাঠান। সরাসরি ১-ক্লিক ডাউনলোড লিংক তৈরি করে দেওয়া হবে।\n\n💡 *প্রধান মেনুতে ফিরে যেতে চাইলে নিচে '❌ 𝐁𝐚𝐜𝐤' বাটনে চাপ দিন।*`
+    );
     return;
   }
 
+  // বাটন ২: 𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨 চাপলে (শুধু '𝐁𝐚𝐜𝐤' বাটন আসবে)
   if (text.includes('𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨') || text.includes('Tiktok Video') || text === '/tiktok') {
     userModes.set(String(senderId), 'tiktok');
-    await sendColoredMenu(chatId, `🔴 **টিকটক ডাউনলোড মোড সক্রিয় হয়েছে!**\n\nএখন যেকোনো টিকটক ভিডিওর লিংক পাঠান। সরাসরি এই চ্যাটেই ওয়াটারমার্ক ছাড়া ফুল এইচডি ভিডিও পাঠিয়ে দেওয়া হবে।`);
+    await sendBackMenu(
+      chatId,
+      `🔴 **টিকটক ডাউনলোড মোড সক্রিয় হয়েছে!**\n\nএখন যেকোনো টিকটক ভিডিওর লিংক পাঠান। সরাসরি এই চ্যাটেই ওয়াটারমার্ক ছাড়া ফুল এইচডি ভিডিও পাঠিয়ে দেওয়া হবে।\n\n💡 *প্রধান মেনুতে ফিরে যেতে চাইলে নিচে '❌ 𝐁𝐚𝐜𝐤' বাটনে চাপ দিন।*`
+    );
+    return;
+  }
+
+  // বাটন ৩: '𝐁𝐚𝐜𝐤' চাপলে (আবার আগের প্রধান মেনুর দুটি বাটন ফিরে আসবে)
+  if (text.includes('𝐁𝐚𝐜𝐤') || text.includes('Back') || text === '/back') {
+    userModes.set(String(senderId), 'main');
+    await sendMainMenu(
+      chatId,
+      `🔙 **প্রধান মেনুতে ফিরে আসা হয়েছে!**\n\nনিচের বাটন থেকে প্রয়োজনীয় কাজটি বেছে নিন:`
+    );
     return;
   }
 
@@ -144,7 +183,7 @@ client.addEventHandler(async (event) => {
   if (hasRealFile) {
     const currentMode = userModes.get(String(senderId)) || 'file';
     if (currentMode === 'tiktok') {
-      await message.reply({ message: '⚠️ আপনি **টিকটক মোডে** আছেন! ফাইল আপলোড করতে নিচের সবুজ **"𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤"** বাটনে চাপ দিন।' });
+      await message.reply({ message: '⚠️ আপনি **টিকটক মোডে** আছেন! ফাইল আপলোড করতে নিচে **"❌ 𝐁𝐚𝐜𝐤"** বাটনে চাপ দিয়ে **"𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤"** সিলেক্ট করুন।' });
       return;
     }
 
@@ -153,11 +192,11 @@ client.addEventHandler(async (event) => {
   }
 
   // সাধারণ টেক্সটের ক্ষেত্রে
-  const currentMode = userModes.get(String(senderId)) || 'file';
+  const currentMode = userModes.get(String(senderId)) || 'main';
   if (currentMode === 'tiktok') {
     await message.reply({ message: '⚠️ অনুগ্রহ করে একটি সঠিক টিকটক ভিডিওর লিংক পাঠান (যেমন: https://vt.tiktok.com/...)' });
   } else {
-    await message.reply({ message: '💡 যেকোনো ফাইল সেন্ড করুন অথবা নিচের মেনু বাটন চাপুন।' });
+    await message.reply({ message: '💡 যেকোনো ফাইল সেন্ড করুন অথবা নিচের মেনু বাটন ব্যবহার করুন।' });
   }
 }, new NewMessage({ incoming: true }));
 
