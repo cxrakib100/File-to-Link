@@ -20,7 +20,7 @@ let botUsername = '';
 
 const userModes = new Map();
 
-// আপনার পছন্দের স্টাইলিশ বোল্ড ফন্ট ও রঙের বাটন
+// আপনার মূল স্টাইলিশ বোল্ড ফন্টের বাটন মেনু
 async function sendColoredMenu(chatId, text) {
   try {
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
@@ -33,8 +33,8 @@ async function sendColoredMenu(chatId, text) {
         reply_markup: {
           keyboard: [
             [
-              { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "success" },          // 🟢 গ্রিন ও স্টাইলিশ বোল্ড
-              { text: "𝐘𝐓 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝", style: "danger" }   // 🔴 লাল ও স্টাইলিশ বোল্ড
+              { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "success" },          // 🟢 গ্রিন ও বোল্ড ফন্ট
+              { text: "𝐘𝐓 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝", style: "danger" }   // 🔴 লাল ও বোল্ড ফন্ট
             ]
           ],
           resize_keyboard: true
@@ -72,16 +72,16 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // ৩. বাটন ক্লিক হ্যান্ডলার
-  if (text === '𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤' || text === 'File To Link' || text === '/file') {
+  // ৩. বাটন ক্লিক হ্যান্ডলার (সব ধরনের ফন্ট সাপোর্ট)
+  if (text.includes('𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤') || text.includes('File To Link') || text === '/file') {
     userModes.set(String(senderId), 'file');
     await sendColoredMenu(chatId, `🟢 **ফাইল টু লিংক মোড সক্রিয়!**\n\nএখন যেকোনো **ফাইল, পিডিএফ, ভিডিও বা ছবি (১০০ এমবি পর্যন্ত)** পাঠান। সরাসরি ১-ক্লিক ডাউনলোড লিংক তৈরি করে দেওয়া হবে।`);
     return;
   }
 
-  if (text === '𝐘𝐓 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝' || text === 'YouTube Video Download' || text === 'YT Video Download' || text === '/yt') {
+  if (text.includes('𝐘𝐓 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝') || text.includes('YT Video Download') || text.includes('YouTube Video') || text === '/yt') {
     userModes.set(String(senderId), 'yt');
-    await sendColoredMenu(chatId, `🔴 **ইউটিউব ডাউনলোড মোড সক্রিয়!**\n\nএখন আপনার কাঙ্ক্ষিত ইউটিউব ভিডিওর লিংক পাঠান। সরাসরি এই চ্যাটেই ফুল এইচডি (1080p) ভিডিও পাঠিয়ে দেওয়া হবে।`);
+    await sendColoredMenu(chatId, `🔴 **ইউটিউব ডাউনলোড মোড সক্রিয়!**\n\nএখন আপনার কাঙ্ক্ষিত ইউটিউব ভিডিওর লিংক পাঠান। সরাসরি এই চ্যাটেই অডিও সহ ফুল এইচডি (1080p) ভিডিও পাঠিয়ে দেওয়া হবে।`);
     return;
   }
 
@@ -93,7 +93,7 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // ৫. ফাইল টু লিংক হ্যান্ডলার (এটি শুধুমাত্র চ্যানেলে ফরওয়ার্ড হবে)
+  // ৫. ফাইল টু লিংক হ্যান্ডলার (এটি শুধুমাত্র আপনার চ্যানেলে ফরওয়ার্ড হবে)
   const hasRealFile = message.media && (message.media.document || message.media.photo);
 
   if (hasRealFile) {
@@ -107,7 +107,7 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // অন্যান্য টেক্সট আসলে
+  // অন্যান্য সাধারণ টেক্সটের ক্ষেত্রে
   const currentMode = userModes.get(String(senderId)) || 'file';
   if (currentMode === 'yt') {
     await message.reply({ message: '⚠️ অনুগ্রহ করে একটি সঠিক ইউটিউব লিংক পাঠান (যেমন: https://youtu.be/...)' });
