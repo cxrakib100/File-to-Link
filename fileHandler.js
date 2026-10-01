@@ -1,23 +1,12 @@
 const BIN_CHANNEL = process.env.BIN_CHANNEL;
 const BASE_URL = (process.env.BASE_URL || '').replace(/\/$/, '');
 
-// ফাইল গ্রহণ করে লিংক তৈরি করা (১ জিবি+ ফাইল সাপোর্ট)
+// ৫০০ মেগাবাইট সাইজ লিমিট (বাইট হিসেবে)
+const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
+
+// ফাইল গ্রহণ করে লিংক তৈরি করা
 async function processFileUpload(client, message) {
   try {
-    // টেলিগ্রাম ক্লাউড ফরোয়ার্ড (০ মেগাবাইট র‍্যাম ব্যবহার হবে, ১ জিবি ফাইলও ০.১ সেকেন্ডে ট্রান্সফার হবে)
-    const forwarded = await client.forwardMessages(BIN_CHANNEL, {
-      messages: [message.id],
-      fromPeer: message.chatId,
-    });
-
-    // চ্যানেলের নতুন মেসেজ আইডি নেওয়া
-    const channelMsg = Array.isArray(forwarded) ? forwarded[0] : (forwarded.updates ? forwarded.updates.find(u => u.message)?.message : forwarded);
-    const channelMsgId = channelMsg?.id || forwarded[0]?.id;
-
-    if (!channelMsgId) {
-      throw new Error('চ্যানেল মেসেজ আইডি পাওয়া যায়নি');
-    }
-
     let fileName = 'file.bin';
     let fileSize = 0;
     let fileType = 'ফাইল';
@@ -31,14 +20,45 @@ async function processFileUpload(client, message) {
       if (fileName.endsWith('.apk')) fileType = 'অ্যাপ্লিকেশন (APK)';
       else if (fileName.endsWith('.pdf')) fileType = 'পিডিএফ (PDF)';
       else if (fileName.endsWith('.zip') || fileName.endsWith('.rar')) fileType = 'জিপ ফাইল (ZIP)';
+      else if (fileName.endsWith('.mp4') || fileName.endsWith('.mkv')) fileType = 'ভিডিও (Video)';
       else fileType = 'ডকুমেন্ট';
     } else if (message.media.photo) {
       fileName = `photo_${Date.now()}.jpg`;
       fileType = 'ছবি (Photo)';
     }
 
-    const downloadLink = `${BASE_URL}/dl/${channelMsgId}/${encodeURIComponent(fileName)}`;
     const sizeMB = fileSize ? (fileSize / (1024 * 1024)).toFixed(2) : '0';
+
+    // ১. ৫০০ এমবির বেশি হলে বট নিজে থেকে সতর্কবার্তা দেবে
+    if (fileSize > MAX_FILE_SIZE) {
+      await message.reply({
+        message: 
+`⚠️ **ফাইল সাইজ সীমা অতিক্রম করেছে!**
+━━━━━━━━━━━━━━━━━━━━━━
+📦 **আপনার ফাইলের সাইজ:** ${sizeMB} MB
+🚫 **সর্বোচ্চ সীমা:** ৫০০.০০ MB
+
+দুঃখিত! বটটিতে সর্বোচ্চ **৫০০ মেগাবাইট (500 MB)** পর্যন্ত ফাইল আপলোড করার অনুমতি রয়েছে। অনুগ্রহ করে ৫০০ এমবির চেয়ে ছোট ফাইল পাঠান।
+━━━━━━━━━━━━━━━━━━━━━━`,
+        parseMode: 'md',
+      });
+      return;
+    }
+
+    // ২. ৫০০ এমবির ভেতরের ফাইল টেলিগ্রাম ক্লাউড দিয়ে ০.১ সেকেন্ডে ফরোয়ার্ড করা
+    const forwarded = await client.forwardMessages(BIN_CHANNEL, {
+      messages: [message.id],
+      fromPeer: message.chatId,
+    });
+
+    const channelMsg = Array.isArray(forwarded) ? forwarded[0] : (forwarded.updates ? forwarded.updates.find(u => u.message)?.message : forwarded);
+    const channelMsgId = channelMsg?.id || forwarded[0]?.id;
+
+    if (!channelMsgId) {
+      throw new Error('চ্যানেল মেসেজ আইডি পাওয়া যায়নি');
+    }
+
+    const downloadLink = `${BASE_URL}/dl/${channelMsgId}/${encodeURIComponent(fileName)}`;
 
     await message.reply({
       message: `✅ **${fileType} সফলভাবে আপলোড হয়েছে!**\n\n` +
@@ -54,7 +74,7 @@ async function processFileUpload(client, message) {
   }
 }
 
-// ব্রাউজারে ১ জিবি পর্যন্ত ফাইল ১-ক্লিকে ডাউনলোড দেওয়ার স্ট্রিমিং রাউট
+// ব্রাউজারে ৫০০ এমবি পর্যন্ত ফাইল ১-ক্লিকে ডাউনলোড দেওয়ার স্ট্রিমিং রাউট
 function setupDownloadRoute(app, client) {
   app.get('/dl/:id/:filename', async (req, res) => {
     try {
@@ -75,7 +95,7 @@ function setupDownloadRoute(app, client) {
       const range = req.headers.range;
       const disposition = `attachment; filename="${encodeURIComponent(fileName)}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
 
-      // বড় ফাইলের জন্য ৫১২ কেবি বাঙ্ক স্ট্রিমিং (কোনো মেমোরি লোড হবে না)
+      // বড় ফাইলের জন্য ৫১২ কেবি বাঙ্ক স্ট্রিমিং
       if (range && fileSize > 0) {
         const parts = range.replace(/bytes=/, '').split('-');
         const start = parseInt(parts[0], 10);
