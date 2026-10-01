@@ -21,17 +21,51 @@ const app = express();
 let botUsername = '';
 
 const userModes = new Map();
-const userTimeouts = new Map(); // ২ ঘণ্টার টাইমার ট্র্যাকিং
+const userTimeouts = new Map();
 
 const TWO_HOURS = 2 * 60 * 60 * 1000; // ২ ঘণ্টা (মিলিসেকেন্ডে)
 
-// আপনার কাঙ্ক্ষিত ব্যাক মেসেজটি এক জায়গায় রাখা হলো
-const BACK_HOME_TEXT = 
-`🏠 **প্রধান মেনু**
+// আপনার দেওয়া কাস্টমাইজড প্রিমিয়াম টেক্সটসমূহ
+const MAIN_MENU_TEXT = 
+`🏠 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮
 ━━━━━━━━━━━━━━━━━━━━━━
-নিচের বাটন থেকে প্রয়োজনীয় সার্ভিসটি বেছে নিন~`;
 
-// ২ ঘণ্টার অটো-ব্যাক টাইমার ফাংশন
+✨ নিচের বাটন থেকে আপনার
+প্রয়োজনীয় সার্ভিসটি বেছে নিন।
+
+━━━━━━━━━━━━━━━━━━━━━━`;
+
+const FILE_SERVICE_TEXT = 
+`📁 𝐅𝐢𝐥𝐞 𝐭𝐨 𝐋𝐢𝐧𝐤 𝐒𝐞𝐫𝐯𝐢𝐜𝐞
+━━━━━━━━━━━━━━━━━━━━━━
+
+📥 যেকোনো ফাইল, PDF, ভিডিও বা ছবি
+📦 সর্বোচ্চ ১০০ MB পর্যন্ত পাঠান।
+
+⚡ 𝐈𝐧𝐬𝐭𝐚𝐧𝐭 𝐃𝐢𝐫𝐞𝐜𝐭 𝐋𝐢𝐧𝐤
+🔗 সাথে সাথেই ১-ক্লিক ডাউনলোড লিংক পাবেন।
+
+ 🏠 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮-তে ফিরতে
+'🔙 𝐁𝐚𝐜𝐤' চাপুন।
+
+━━━━━━━━━━━━━━━━━━━━━━`;
+
+const TIKTOK_SERVICE_TEXT = 
+`🎬 𝐓𝐢𝐤𝐓𝐨𝐤 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐞𝐫
+━━━━━━━━━━━━━━━━━━━━━━
+
+📥 TikTok ভিডিওর 🔗 লিংকটি পাঠান।
+
+✨ 𝐖𝐢𝐭𝐡𝐨𝐮𝐭 𝐖𝐚𝐭𝐞𝐫𝐦𝐚𝐫𝐤
+🎥 𝐇𝐢𝐠𝐡-𝐐𝐮𝐚𝐥𝐢𝐭𝐲 𝐕𝐢𝐝𝐞𝐨
+
+ 🏠 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮-তে
+ফিরতে 
+'🔙 𝐁𝐚𝐜𝐤' চাপুন।
+
+━━━━━━━━━━━━━━━━━━━━━━`;
+
+// ২ ঘণ্টার অটো-ব্যাক টাইমার
 function startAutoBackTimer(chatId, userId) {
   if (userTimeouts.has(String(userId))) {
     clearTimeout(userTimeouts.get(String(userId)));
@@ -40,12 +74,11 @@ function startAutoBackTimer(chatId, userId) {
   const timer = setTimeout(async () => {
     try {
       const currentMode = userModes.get(String(userId));
-      // ইউজার সাব-মোডে থাকলে ২ ঘণ্টা পর অটোমেটিক এই টেক্সট দিয়ে ব্যাক হবে
       if (currentMode === 'file' || currentMode === 'tiktok') {
         userModes.set(String(userId), 'main');
         userTimeouts.delete(String(userId));
 
-        await sendMainMenu(chatId, BACK_HOME_TEXT);
+        await sendMainMenu(chatId, MAIN_MENU_TEXT);
       }
     } catch (err) {
       console.error('Auto back error:', err);
@@ -55,7 +88,6 @@ function startAutoBackTimer(chatId, userId) {
   userTimeouts.set(String(userId), timer);
 }
 
-// টাইমার বাতিল করার ফাংশন
 function cancelAutoBackTimer(userId) {
   if (userTimeouts.has(String(userId))) {
     clearTimeout(userTimeouts.get(String(userId)));
@@ -63,7 +95,7 @@ function cancelAutoBackTimer(userId) {
   }
 }
 
-// প্রধান মেনু কিবোর্ড (গ্রিন, ব্লু ও রেড বাটন)
+// প্রধান মেনুর কিবোর্ড (গ্রিন, ব্লু ও রেড বাটন)
 async function sendMainMenu(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
@@ -77,11 +109,11 @@ async function sendMainMenu(chatId, text) {
         reply_markup: {
           keyboard: [
             [
-              { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "success" },          // 🟢 গ্রিন বাটন
-              { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }           // 🔵 ব্লু বাটন
+              { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "success" },          // 🟢 গ্রিন বাটন (১ম লাইন বামে)
+              { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }           // 🔵 ব্লু বাটন (১ম লাইন ডানে)
             ],
             [
-              { text: "𝐒𝐮𝐩𝐩𝐨𝐫𝐭", style: "danger" }                 // 🔴 রেড বাটন
+              { text: "𝐒𝐮𝐩𝐩𝐨𝐫𝐭", style: "danger" }                 // 🔴 রেড বাটন (সবার নিচে)
             ]
           ],
           resize_keyboard: true
@@ -144,10 +176,7 @@ client.addEventHandler(async (update) => {
         userModes.set(String(senderId), 'main');
         cancelAutoBackTimer(senderId);
 
-        await sendMainMenu(
-          senderId,
-          `🎉 **স্বাগতম! চ্যানেল ভেরিফিকেশন সফল হয়েছে।**\n\n⚡ **বটের সব সার্ভিস এখন সম্পূর্ণ সক্রিয়!**\n\nনিচের বাটন থেকে প্রয়োজনীয় কাজটি বেছে নিন:`
-        );
+        await sendMainMenu(senderId, MAIN_MENU_TEXT);
 
       } else {
         await client.invoke(
@@ -178,36 +207,30 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // /start কমান্ড দিলে
+  // /start কমান্ড দিলে প্রধান মেনু দেখানো
   if (text.startsWith('/start')) {
     userModes.set(String(senderId), 'main');
     cancelAutoBackTimer(senderId);
 
-    await sendMainMenu(chatId, BACK_HOME_TEXT);
+    await sendMainMenu(chatId, MAIN_MENU_TEXT);
     return;
   }
 
   // বাটন ১: 𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤
   if (text.includes('𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤') || text.includes('File To Link') || text === '/file') {
     userModes.set(String(senderId), 'file');
-    startAutoBackTimer(chatId, senderId); // ২ ঘণ্টার টাইমার শুরু
+    startAutoBackTimer(chatId, senderId);
 
-    await sendBackMenu(
-      chatId,
-      `📁 **ফাইল টু লিংক সার্ভিস সক্রিয় হয়েছে!**\n━━━━━━━━━━━━━━━━━━━━━━\n📥 **কীভাবে ব্যবহার করবেন:**\nআমাকে যেকোনো **ফাইল, পিডিএফ, ভিডিও বা ছবি (১০০ এমবি পর্যন্ত)** পাঠান।\n\n⚡ সাথে সাথে একটি সরাসরি ১-ক্লিক ডাউনলোড লিংক তৈরি করে দেওয়া হবে।\n\n🔙 *প্রধান মেনুতে ফিরে যেতে চাইলে নিচের '🔙 𝐁𝐚𝐜𝐤' বাটন চাপুন।*\n*(২ ঘণ্টা নিষ্ক্রিয় থাকলে বট নিজে থেকেই মেনুতে ফিরে যাবে)*\n━━━━━━━━━━━━━━━━━━━━━━`
-    );
+    await sendBackMenu(chatId, FILE_SERVICE_TEXT);
     return;
   }
 
   // বাটন ২: 𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨
   if (text.includes('𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨') || text.includes('Tiktok Video') || text === '/tiktok') {
     userModes.set(String(senderId), 'tiktok');
-    startAutoBackTimer(chatId, senderId); // ২ ঘণ্টার টাইমার শুরু
+    startAutoBackTimer(chatId, senderId);
 
-    await sendBackMenu(
-      chatId,
-      `🎬 **টিকটক ভিডিও ডাউনলোডার সক্রিয় হয়েছে!**\n━━━━━━━━━━━━━━━━━━━━━━\n📥 **কীভাবে ব্যবহার করবেন:**\nআপনার কাঙ্ক্ষিত টিকটক ভিডিওর লিংকটি এখানে পেস্ট করে সেন্ড করুন।\n\n✨ কোনো ওয়াটারমার্ক ছাড়া সরাসরি হাই-কোয়ালিটি ভিডিও এই চ্যাটেই পেয়ে যাবেন।\n\n🔙 *প্রধান মেনুতে ফিরে যেতে চাইলে নিচের '🔙 𝐁𝐚𝐜𝐤' বাটন চাপুন।*\n*(২ ঘণ্টা নিষ্ক্রিয় থাকলে বট নিজে থেকেই মেনুতে ফিরে যাবে)*\n━━━━━━━━━━━━━━━━━━━━━━`
-    );
+    await sendBackMenu(chatId, TIKTOK_SERVICE_TEXT);
     return;
   }
 
@@ -231,12 +254,12 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // বাটন ৪: '🔙 𝐁𝐚𝐜𝐤' চাপলে আপনার কাঙ্ক্ষিত হুবহু টেক্সট আসবে
+  // বাটন ৪: '🔙 𝐁𝐚𝐜𝐤' চাপলে
   if (text.includes('𝐁𝐚𝐜𝐤') || text.includes('Back') || text === '/back') {
     userModes.set(String(senderId), 'main');
-    cancelAutoBackTimer(senderId); // টাইমার বাতিল
+    cancelAutoBackTimer(senderId);
 
-    await sendMainMenu(chatId, BACK_HOME_TEXT);
+    await sendMainMenu(chatId, MAIN_MENU_TEXT);
     return;
   }
 
