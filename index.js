@@ -20,13 +20,12 @@ const app = express();
 let botUsername = '';
 
 const userModes = new Map();
-const lastModeMessages = new Map(); // আগের মেসেজ ট্র্যাকিংয়ের জন্য
 
 // ১. প্রধান মেনু কিবোর্ড (সবুজ ও লাল বাটন)
 async function sendMainMenu(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
-    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -44,17 +43,16 @@ async function sendMainMenu(chatId, text) {
         }
       })
     });
-    return await res.json();
   } catch (err) {
     console.error('sendMainMenu error:', err);
   }
 }
 
-// ২. মোড অ্যাক্টিভেশনের একক মেসেজ (নিচে শুধু ব্যাক বাটন থাকবে)
-async function sendModeMessage(chatId, text) {
+// ২. সাব-মেনু কিবোর্ড (শুধুমাত্র '🔙 𝐁𝐚𝐜𝐤' বাটন)
+async function sendBackMenu(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
-    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -64,54 +62,19 @@ async function sendModeMessage(chatId, text) {
         reply_markup: {
           keyboard: [
             [
-              { text: "🔙 𝐁𝐚𝐜𝐤", style: "danger" } // 🔴 নিচে শুধু ব্যাক বাটন
+              { text: "🔙 𝐁𝐚𝐜𝐤", style: "danger" } // 🔴 লাল ব্যাক বাটন
             ]
           ],
           resize_keyboard: true
         }
       })
     });
-    const data = await res.json();
-    if (data.ok && data.result) {
-      lastModeMessages.set(String(chatId), data.result.message_id);
-    }
   } catch (err) {
-    console.error('sendModeMessage error:', err);
+    console.error('sendBackMenu error:', err);
   }
 }
 
-// ৩. সাইলেন্ট ব্যাক (কোনো মেসেজ ছাড়া শুধু কিবোর্ড ব্যাক করা)
-async function silentBackToMenu(chatId) {
-  try {
-    const cleanId = String(chatId).replace(/[^0-9-]/g, '');
-    // অদৃশ্য ক্যারেক্টার দিয়ে কিবোর্ড পাল্টে সাথে সাথে মেসেজ মুছে ফেলা হবে
-    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: cleanId,
-        text: 'ㅤ',
-        reply_markup: {
-          keyboard: [
-            [
-              { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "success" },
-              { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "danger" }
-            ]
-          ],
-          resize_keyboard: true
-        }
-      })
-    });
-    const data = await res.json();
-    if (data.ok && data.result) {
-      await client.deleteMessages(chatId, [data.result.message_id], { revoke: true });
-    }
-  } catch (err) {
-    console.error('silentBack error:', err);
-  }
-}
-
-// ৪. ইনলাইন ভেরিফিকেশন হ্যান্ডলার
+// ৩. ইনলাইন ভেরিফিকেশন হ্যান্ডলার
 client.addEventHandler(async (update) => {
   if (update.className === 'UpdateBotCallbackQuery') {
     const data = update.data ? update.data.toString() : '';
@@ -152,7 +115,7 @@ client.addEventHandler(async (update) => {
   }
 });
 
-// ৫. টেক্সট ও মেনু হ্যান্ডলার
+// ৪. টেক্সট ও মেনু হ্যান্ডলার
 client.addEventHandler(async (event) => {
   const message = event.message;
   if (!message) return;
@@ -168,56 +131,43 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // /start কমান্ড দিলে
+  // /start কমান্ড দিলে প্রধান মেনু দেখানো
   if (text.startsWith('/start')) {
     userModes.set(String(senderId), 'main');
     await sendMainMenu(
       chatId,
-      `🎉 **স্বাগতম!**\n\nনিচের বাটন থেকে প্রয়োজনীয় সার্ভিস সিলেক্ট করুন:\n\n🟢 **𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤:** ফাইল, ছবি, ভিডিও সরাসরি লিংকে রূপান্তর করতে।\n🔴 **𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨:** টিকটক ভিডিও ওয়াটারমার্ক ছাড়া ডাউনলোড করতে।`
+      `🏠 **প্রধান মেনু — File To Link & Media Hub**\n━━━━━━━━━━━━━━━━━━━━━━\nবটের সব সার্ভিস এখন সক্রিয়! নিচের মেনু বাটন থেকে আপনার প্রয়োজনীয় সার্ভিসটি নির্বাচন করুন:\n\n🟢 **𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤:**\nযেকোনো ফাইল, ডকুমেন্ট, ভিডিও বা ১০০ এমবি পর্যন্ত পিডিএফের সরাসরি ১-ক্লিক ডাউনলোড লিংক তৈরি করতে।\n\n🔴 **𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨:**\nটিকটক ভিডিও কোনো ওয়াটারমার্ক ছাড়া ফুল এইচডি কোয়ালিটিতে সরাসরি ডাউনলোড করতে।\n━━━━━━━━━━━━━━━━━━━━━━`
     );
     return;
   }
 
-  // বাটন ১: 𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤 চাপলে (একটি মাত্র মেসেজ যাবে, কোনো ইনলাইন বাটন থাকবে না)
+  // বাটন ১: 𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤 চাপলে (সুন্দর প্রিমিয়াম মেসেজ ও ব্যাক বাটন)
   if (text.includes('𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤') || text.includes('File To Link') || text === '/file') {
     userModes.set(String(senderId), 'file');
-    await sendModeMessage(
+    await sendBackMenu(
       chatId,
-      `🟢 **ফাইল টু লিংক মোড সক্রিয় হয়েছে!**\n\nএখন যেকোনো **ফাইল, পিডিএফ, ভিডিও বা ছবি (১০০ এমবি পর্যন্ত)** পাঠান। সরাসরি ১-ক্লিক ডাউনলোড লিংক তৈরি করে দেওয়া হবে।`
+      `📁 **ফাইল টু লিংক সার্ভিস সক্রিয় হয়েছে!**\n━━━━━━━━━━━━━━━━━━━━━━\n📥 **কীভাবে ব্যবহার করবেন:**\nআমাকে যেকোনো **ফাইল, পিডিএফ, ভিডিও বা ছবি (১০০ এমবি পর্যন্ত)** পাঠান।\n\n⚡ সাথে সাথে একটি সরাসরি ১-ক্লিক ডাউনলোড লিংক তৈরি করে দেওয়া হবে, যা যেকোনো ব্রাউজার ও মেসেঞ্জারে সহজে ওপেন হবে।\n\n🔙 *প্রধান মেনুতে ফিরে যেতে চাইলে নিচের '🔙 𝐁𝐚𝐜𝐤' বাটন চাপুন।*\n━━━━━━━━━━━━━━━━━━━━━━`
     );
     return;
   }
 
-  // বাটন ২: 𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨 চাপলে (একটি মাত্র মেসেজ যাবে, কোনো ইনলাইন বাটন থাকবে না)
+  // বাটন ২: 𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨 চাপলে (সুন্দর প্রিমিয়াম মেসেজ ও ব্যাক বাটন)
   if (text.includes('𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨') || text.includes('Tiktok Video') || text === '/tiktok') {
     userModes.set(String(senderId), 'tiktok');
-    await sendModeMessage(
+    await sendBackMenu(
       chatId,
-      `🔴 **টিকটক ডাউনলোড মোড সক্রিয় হয়েছে!**\n\nএখন যেকোনো টিকটক ভিডিওর লিংক পাঠান। সরাসরি এই চ্যাটেই ওয়াটারমার্ক ছাড়া ফুল এইচডি ভিডিও পাঠিয়ে দেওয়া হবে।`
+      `🎬 **টিকটক ভিডিও ডাউনলোডার সক্রিয় হয়েছে!**\n━━━━━━━━━━━━━━━━━━━━━━\n📥 **কীভাবে ব্যবহার করবেন:**\nআপনার কাঙ্ক্ষিত টিকটক ভিডিওর লিংকটি এখানে পেস্ট করে সেন্ড করুন।\n\n✨ কোনো ওয়াটারমার্ক ছাড়া সরাসরি হাই-কোয়ালিটি ভিডিও এই চ্যাটেই পাঠিয়ে দেওয়া হবে।\n\n🔙 *প্রধান মেনুতে ফিরে যেতে চাইলে নিচের '🔙 𝐁𝐚𝐜𝐤' বাটন চাপুন।*\n━━━━━━━━━━━━━━━━━━━━━━`
     );
     return;
   }
 
-  // বাটন ৩: '🔙 𝐁𝐚𝐜𝐤' বাটনে চাপ দিলে (কোনো মেসেজ না দিয়ে সম্পূর্ণ সাইলেন্ট ব্যাক)
+  // বাটন ৩: '🔙 𝐁𝐚𝐜𝐤' চাপলে (কোনো ডিলিট গ্লিচ ছাড়া সরাসরি হোমস্ক্রিন চালু হবে)
   if (text.includes('𝐁𝐚𝐜𝐤') || text.includes('Back') || text === '/back') {
     userModes.set(String(senderId), 'main');
-
-    // ইউজারের পাঠানো 'Back' মেসেজটি সাথে সাথে ডিলিট করা
-    try {
-      await client.deleteMessages(chatId, [message.id], { revoke: true });
-    } catch (e) {}
-
-    // আগের পাঠানো মোড মেসেজটি থাকলে তাও ডিলিট করে দেওয়া
-    const prevMsgId = lastModeMessages.get(String(chatId));
-    if (prevMsgId) {
-      try {
-        await client.deleteMessages(chatId, [prevMsgId], { revoke: true });
-        lastModeMessages.delete(String(chatId));
-      } catch (e) {}
-    }
-
-    // চ্যাটে কোনো নতুন মেসেজ ছাড়া কেবল নিচের কিবোর্ডটি আগের মূল বাটনে ফিরিয়ে দেওয়া
-    await silentBackToMenu(chatId);
+    await sendMainMenu(
+      chatId,
+      `🏠 **প্রধান মেনু**\n━━━━━━━━━━━━━━━━━━━━━━\nনিচের বাটন থেকে প্রয়োজনীয় কাজটি বেছে নিন:\n\n🟢 **𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤** — ফাইল সরাসরি লিংকে রূপান্তর\n🔴 **𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨** — ওয়াটারমার্ক ছাড়া টিকটক ভিডিও\n━━━━━━━━━━━━━━━━━━━━━━`
+    );
     return;
   }
 
@@ -233,7 +183,7 @@ client.addEventHandler(async (event) => {
   if (hasRealFile) {
     const currentMode = userModes.get(String(senderId)) || 'file';
     if (currentMode === 'tiktok') {
-      await message.reply({ message: '⚠️ আপনি **টিকটক মোডে** আছেন! ফাইল আপলোড করতে নিচে **"🔙 𝐁𝐚𝐜𝐤"** বাটনে চাপ দিয়ে **"𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤"** সিলেক্ট করুন।' });
+      await message.reply({ message: '⚠️ আপনি বর্তমানে **টিকটক মোডে** আছেন! ফাইল আপলোড করতে নিচে **"🔙 𝐁𝐚𝐜𝐤"** বাটনে চাপ দিয়ে **"𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤"** সিলেক্ট করুন।' });
       return;
     }
 
