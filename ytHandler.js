@@ -48,4 +48,61 @@ async function getDirectVideoUrl(fullYtUrl) {
 }
 
 // সরাসরি টেলিগ্রাম বটে ভিডিও পাঠানোর মূল ফাংশন
-async funct
+async function handleYouTubeDownload(client, chatId, text) {
+  const ytRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+  const ytMatch = text.match(ytRegex);
+
+  if (!ytMatch) return false;
+
+  const videoId = ytMatch[1];
+  const fullYtUrl = `https://www.youtube.com/watch?v=${videoId}`;
+
+  const statusMsg = await client.sendMessage(chatId, {
+    message: '⚡ **ইউটিউব থেকে অডিও সহ ফুল এইচডি ভিডিও প্রস্তুত করা হচ্ছে... কিছুক্ষণ অপেক্ষা করুন।**',
+    parseMode: 'md',
+  });
+
+  try {
+    const videoData = await getDirectVideoUrl(fullYtUrl);
+
+    if (!videoData || !videoData.url) {
+      throw new Error('ভিডিও ডাউনলোড লিংক প্রস্তুত করা যায়নি');
+    }
+
+    const tempFilePath = path.join('/tmp', `yt_${videoId}_${Date.now()}.mp4`);
+    const streamRes = await fetch(videoData.url);
+    if (!streamRes.ok) throw new Error('ভিডিও ফাইল নামাতে সমস্যা হয়েছে');
+
+    const fileStream = fs.createWriteStream(tempFilePath);
+    await pipeline(Readable.fromWeb(streamRes.body), fileStream);
+
+    await client.editMessage(chatId, {
+      message: statusMsg.id,
+      text: '📤 **ভিডিও সফলভাবে প্রসেস হয়েছে! টেলিগ্রামে আপলোড করা হচ্ছে...**',
+      parseMode: 'md',
+    });
+
+    // শুধুমাত্র এই ইউজারের চ্যাটেই ভিডিওটি পাঠানো হচ্ছে (চ্যানেলে যাবে না)
+    await client.sendFile(chatId, {
+      file: tempFilePath,
+      caption: `🎬 **${videoData.title}**\n\n🔗 https://youtu.be/${videoId}`,
+      supportsStreaming: true, // টেলিগ্রামে সরাসরি প্লে হবে
+    });
+
+    // ক্লিনআপ
+    await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
+    if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+
+    return true;
+  } catch (err) {
+    console.error('YouTube Processing Error:', err);
+
+    await client.editMessage(chatId, {
+      message: statusMsg.id,
+      text: '❌ **ভিডিওটি নামাতে সাময়িক সমস্যা হয়েছে। অনুগ্রহ করে আবার লিংকটি পাঠান।**',
+    });
+    return true;
+  }
+}
+
+module.exports = { handleYouTubeDownload };
