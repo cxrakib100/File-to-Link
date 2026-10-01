@@ -50,7 +50,7 @@ function sendFastTelegramRequest(endpoint, payload) {
       },
       agent: httpAgent
     }, (res) => {
-      res.resume(); // সকেট মুক্ত করে পরবর্তী ক্লিকের জন্য প্রস্তুত রাখা
+      res.resume();
       resolve(true);
     });
     req.on('error', () => resolve(false));
@@ -229,7 +229,7 @@ client.addEventHandler(async (event) => {
   const senderId = message.senderId;
   const chatId = message.chatId;
 
-  // চ্যানেল ভেরিফিকেশন (চেকিং অক্ষুণ্ণ রেখে আল্ট্রা স্পিডে সম্পন্ন হবে)
+  // চ্যানেল ভেরিফিকেশন
   const joined = await checkSubWithSpeed(senderId);
   if (!joined) {
     await sendJoinPrompt(client, chatId);
@@ -277,22 +277,28 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // বাটন ৩: 𝐒𝐮𝐩𝐩𝐨𝐫𝐭 (সিনট্যাক্স ঠিক করা হয়েছে)
-  if (text === '𝐒𝐮𝐩𝐩𝐨𝐫𝐭' || text === 'Support') {
+  // বাটন ৩: 𝐒𝐮𝐩𝐩𝐨𝐫𝐭 (সরাসরি কাজ করবে এবং কখনো ফেইল করবে না)
+  if (text === '𝐒𝐮𝐩𝐩𝐨𝐫𝐭' || text === 'Support' || text.toLowerCase().includes('support')) {
+    const cleanId = String(chatId).replace(/[^0-9-]/g, '');
     const prefillText = encodeURIComponent('আসসালামু আলাইকুম ভাইয়া!');
     const supportUrl = `https://t.me/cx_rakib?text=${prefillText}`;
 
-    await client.sendMessage(chatId, {
-      message:
-`👨‍💻 **অ্যাডমিন সাপোর্ট ও সহায়তা কেন্দ্র**
+    await sendFastTelegramRequest('sendMessage', {
+      chat_id: cleanId,
+      text: 
+`👨‍💻 <b>অ্যাডমিন সাপোর্ট ও সহায়তা কেন্দ্র</b>
 ━━━━━━━━━━━━━━━━━━━━━━
 যেকোনো সমস্যা, প্রশ্ন বা সহায়তার জন্য সরাসরি অ্যাডমিনের সাথে যোগাযোগ করতে পারেন।
 
-👇 **নিচের বাটনে ক্লিক করুন 👇 **`,
-      buttons: [
-        [Button.url('💬 অ্যাডমিনকে মেসেজ পাঠান', supportUrl)]
-      ],
-      parseMode: 'md',
+👇 <b>নিচের বাটনে ক্লিক করে! 👇 </b>`,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: "💬 অ্যাডমিনকে মেসেজ পাঠান", url: supportUrl }
+          ]
+        ]
+      }
     });
     return;
   }
@@ -305,12 +311,18 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // টিকটক লিংক আসলে সরাসরি ডাউনলোড
+  // টিকটক লিংক হ্যান্ডলিং (শুধুমাত্র নিখুঁত ভিডিও লিংক আলাদা করবে)
   const isTikTokLink = /(?:tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com)/i.test(text);
   if (isTikTokLink) {
-    startAutoBackTimer(chatId, senderId);
-    await handleTikTokDownload(client, chatId, text);
-    return;
+    const allUrls = text.match(/https?:\/\/(?:[a-zA-Z0-9-]+\.)?tiktok\.com\/[^\s]+/gi) || [];
+    // tiktoklite বা অতিরিক্ত বিজ্ঞাপনী লিংক বাদ দিয়ে আসল ভিডিওর লিংক বের করা
+    const cleanVideoUrl = allUrls.find(u => !u.toLowerCase().includes('tiktoklite')) || allUrls[0];
+
+    if (cleanVideoUrl) {
+      startAutoBackTimer(chatId, senderId);
+      await handleTikTokDownload(client, chatId, cleanVideoUrl);
+      return;
+    }
   }
 
   // সাধারণ টেক্সটের ক্ষেত্রে
@@ -330,7 +342,7 @@ app.get('/', (req, res) => res.send('Multi-Function Bot Server is Live!'));
 setInterval(async () => {
   try {
     if (client && client.connected) {
-      await client.invoke(new Api.help.GetConfig()); // সংযোগ সর্বদা লাইভ রাখবে
+      await client.invoke(new Api.help.GetConfig());
     } else if (client) {
       await client.connect();
     }
