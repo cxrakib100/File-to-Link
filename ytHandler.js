@@ -3,141 +3,93 @@ const path = require('path');
 const { pipeline } = require('stream/promises');
 const { Readable } = require('stream');
 
-// ১. কোবাল্ট ক্লাউড সার্ভারসমূহ (১৬টি মিরর)
-const COBALT_SERVERS = [
-  'https://cobalt.meowing.de',
-  'https://co.wuk.sh',
-  'https://cobalt.canine.tools',
-  'https://co.meow.gb.net',
-  'https://co.tskau.team',
-  'https://api.co.rooot.gay',
-  'https://capi.oak.li',
-  'https://cobalt.synzr.space',
-  'https://api-dl.cgm.rs',
-  'https://cobalt.api.timelessnesses.me',
-  'https://cobalt-api.hyper.lol',
-  'https://co.kelig.me',
-  'https://nyc1.coapi.ggtyler.dev',
-  'https://cal1.coapi.ggtyler.dev',
-  'https://par1.coapi.ggtyler.dev',
-  'https://cobalt-api.ayo.tf'
-];
-
-// ২. ইনভিডিয়াস গ্লোবাল মিরর (৮টি সার্ভার)
-const INVIDIOUS_SERVERS = [
-  'inv.nadeko.net',
-  'invidious.nerdvpn.de',
-  'invidious.private.coffee',
-  'yt.artemislena.eu',
-  'invidious.jing.rocks',
-  'invidious.drgns.space',
-  'invidious.lunar.icu',
-  'yewtu.be'
-];
-
-// ৩০+ এপিআই ক্লাস্টার দিয়ে ভিডিও লিঙ্ক খোঁজার ইঞ্জিন
-async function getDirectVideoUrl(fullYtUrl, videoId) {
-  // ইঞ্জিন ১: সিপুতজেডএক্স সেভফ্রম ও ytmp4 এপিআই
+// ইউটিউবের নিজস্ব অফিশিয়াল InnerTube ইঞ্জিন দিয়ে সরাসরি ভিডিও লিংক বের করা
+async function getDirectVideoUrl(videoId) {
+  // ১. ইউটিউব অ্যান্ড্রয়েড ক্লায়েন্ট ইঞ্জিন
   try {
-    const res = await fetch(`https://api.siputzx.my.id/api/d/savefrom?url=${encodeURIComponent(fullYtUrl)}`, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-      signal: AbortSignal.timeout(4000)
+    const res = await fetch(`https://www.youtube.com/youtubei/v1/player?key=AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'com.google.android.youtube/19.05.36 (Linux; U; Android 11; en_US) gzip'
+      },
+      body: JSON.stringify({
+        videoId: videoId,
+        context: {
+          client: {
+            clientName: 'ANDROID',
+            clientVersion: '19.05.36',
+            androidSdkVersion: 30
+          }
+        }
+      }),
+      signal: AbortSignal.timeout(8000)
     });
+
     if (res.ok) {
       const data = await res.json();
-      const urls = data.data?.url || data.result?.url || data.data || [];
-      const videoObj = Array.isArray(urls) 
-        ? urls.find(u => u.url && (u.ext === 'mp4' || u.type?.includes('mp4') || !u.no_audio)) || urls[0]
-        : null;
-      if (videoObj?.url) return { url: videoObj.url, title: data.data?.meta?.title || 'YouTube Video' };
-    }
-  } catch (e) {}
-
-  // ইঞ্জিন ২: রাইজুমি অল-ইন-ওয়ান ডাউনলোডার
-  try {
-    const res = await fetch(`https://api.ryzumi.net/api/downloader/all-in-one?url=${encodeURIComponent(fullYtUrl)}`, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(4000)
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const dl = data.result?.video || data.result?.url || (Array.isArray(data.result) && data.result[0]?.url);
-      if (dl) return { url: dl, title: data.result?.title || 'YouTube Video' };
-    }
-  } catch (e) {}
-
-  // ইঞ্জিন ৩: ডেলিরিয়াস এপিআই
-  try {
-    const res = await fetch(`https://delirius-apiofc.vercel.app/download/ytmp4?url=${encodeURIComponent(fullYtUrl)}`, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(4000)
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const dl = data.data?.download?.url || data.download?.url;
-      if (dl) return { url: dl, title: data.data?.title || 'YouTube Video' };
-    }
-  } catch (e) {}
-
-  // ইঞ্জিন ৪: VKR ডাউনলোডার
-  try {
-    const res = await fetch(`https://vkrdownloader.org/server/?api_key=vkrdownloader&vkr=${encodeURIComponent(fullYtUrl)}`, {
-      signal: AbortSignal.timeout(4000)
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const formats = data.formats || data.data?.formats || [];
-      const chosen = formats.find(f => f.url && f.ext === 'mp4');
-      if (chosen?.url) return { url: chosen.url, title: data.title || 'YouTube Video' };
-    }
-  } catch (e) {}
-
-  // ইঞ্জিন ৫: Cobalt ১৬টি ক্লাস্টার
-  for (const server of COBALT_SERVERS) {
-    try {
-      const res = await fetch(`${server}/`, {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'User-Agent': 'Mozilla/5.0'
-        },
-        body: JSON.stringify({
-          url: fullYtUrl,
-          videoQuality: '1080',
-          downloadMode: 'auto'
-        }),
-        signal: AbortSignal.timeout(3000) // মাত্র ৩ সেকেন্ডে ফাস্ট স্কিপ
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        const streamUrl = data.url || (data.picker && data.picker[0]?.url);
-        if (streamUrl) return { url: streamUrl, title: 'YouTube Video' };
+      const title = data.videoDetails?.title || 'YouTube Video';
+      const formats = data.streamingData?.formats || [];
+      // অডিও সহ ৭২০p বা ৩৬০p সরাসরি ভিডিও
+      const best = formats.find(f => f.url && f.qualityLabel === '720p') || formats.find(f => f.url);
+      if (best?.url) {
+        return { url: best.url, title: title };
       }
-    } catch (e) {
-      continue;
     }
+  } catch (e) {
+    console.error('Android InnerTube failed:', e);
   }
 
-  // ইঞ্জিন ৬: Invidious ৮টি ক্লাস্টার
-  for (const host of INVIDIOUS_SERVERS) {
-    try {
-      const res = await fetch(`https://${host}/api/v1/videos/${videoId}`, {
-        headers: { 'User-Agent': 'Mozilla/5.0' },
-        signal: AbortSignal.timeout(3000)
-      });
+  // ২. ইউটিউব আইওএস ক্লায়েন্ট ইঞ্জিন
+  try {
+    const res = await fetch(`https://www.youtube.com/youtubei/v1/player?key=AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'com.google.ios.youtube/19.29.1 (iPhone14,5; U; CPU iOS 17_5 like Mac OS X)'
+      },
+      body: JSON.stringify({
+        videoId: videoId,
+        context: {
+          client: {
+            clientName: 'IOS',
+            clientVersion: '19.29.1',
+            deviceMake: 'Apple',
+            deviceModel: 'iPhone14,5'
+          }
+        }
+      }),
+      signal: AbortSignal.timeout(8000)
+    });
 
-      if (res.ok) {
-        const data = await res.json();
-        const formats = data.formatStreams?.reverse() || [];
-        const chosen = formats.find(f => f.url && f.container === 'mp4') || formats[0];
-        if (chosen?.url) return { url: chosen.url, title: data.title || 'YouTube Video' };
+    if (res.ok) {
+      const data = await res.json();
+      const title = data.videoDetails?.title || 'YouTube Video';
+      const formats = data.streamingData?.formats || [];
+      const best = formats.find(f => f.url && f.qualityLabel === '720p') || formats.find(f => f.url);
+      if (best?.url) {
+        return { url: best.url, title: title };
       }
-    } catch (e) {
-      continue;
     }
+  } catch (e) {
+    console.error('iOS InnerTube failed:', e);
   }
+
+  // ৩. ব্যাকআপ রেস্ট এপিআই (Siputzx API)
+  try {
+    const res = await fetch(`https://api.siputzx.my.id/api/d/savefrom?url=https://www.youtube.com/watch?v=${videoId}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(6000)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const urls = data.data?.url || data.result?.url || [];
+      const best = Array.isArray(urls) ? urls.find(u => u.url && !u.no_audio) || urls[0] : null;
+      if (best?.url) {
+        return { url: best.url, title: data.data?.meta?.title || 'YouTube Video' };
+      }
+    }
+  } catch (e) {}
 
   return null;
 }
@@ -150,26 +102,28 @@ async function handleYouTubeDownload(client, chatId, text) {
   if (!ytMatch) return false;
 
   const videoId = ytMatch[1];
-  const fullYtUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
   const statusMsg = await client.sendMessage(chatId, {
-    message: '⚡ **ইউটিউব থেকে অডিও সহ ফুল এইচডি ভিডিও প্রসেস করা হচ্ছে... অনুগ্রহ করে কিছুক্ষণ অপেক্ষা করুন।**',
+    message: '⚡ **ইউটিউব থেকে অডিও সহ সরাসরি ভিডিও প্রস্তুত করা হচ্ছে... অনুগ্রহ করে একটু অপেক্ষা করুন।**',
     parseMode: 'md',
   });
 
   try {
-    const videoData = await getDirectVideoUrl(fullYtUrl, videoId);
+    const videoData = await getDirectVideoUrl(videoId);
 
     if (!videoData || !videoData.url) {
-      throw new Error('কোনো ইঞ্জিন থেকেই ভিডিও লিংক পাওয়া যায়নি');
+      throw new Error('ভিডিও লিংক জেনারেট করা সম্ভব হয়নি');
     }
 
     const tempFilePath = path.join('/tmp', `yt_${videoId}_${Date.now()}.mp4`);
-    const streamRes = await fetch(videoData.url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
-    });
     
-    if (!streamRes.ok) throw new Error('ভিডিও ফাইল ডাউনলোড করা যায়নি');
+    const streamRes = await fetch(videoData.url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    });
+
+    if (!streamRes.ok) throw new Error('ভিডিও ডাউনলোড করতে সমস্যা হয়েছে');
 
     const fileStream = fs.createWriteStream(tempFilePath);
     await pipeline(Readable.fromWeb(streamRes.body), fileStream);
@@ -179,24 +133,24 @@ async function handleYouTubeDownload(client, chatId, text) {
 
     await client.editMessage(chatId, {
       message: statusMsg.id,
-      text: '📤 **ভিডিও সফলভাবে তৈরি হয়েছে! আপনার টেলিগ্রাম চ্যাটে পাঠানো হচ্ছে...**',
+      text: '📤 **ভিডিও সফলভাবে প্রস্তুত হয়েছে! আপনার টেলিগ্রাম চ্যাটে পাঠানো হচ্ছে...**',
       parseMode: 'md',
     });
 
-    // শুধুমাত্র ইউজারের চ্যাটেই ভিডিও পাঠানো হচ্ছে (চ্যানেলে যাবে না)
+    // সরাসরি ইউজারের চ্যাটে ভিডিও পাঠানো হচ্ছে (চ্যানেলে যাবে না)
     await client.sendFile(chatId, {
       file: tempFilePath,
       caption: `🎬 **${videoData.title}**\n\n🔗 https://youtu.be/${videoId}`,
       supportsStreaming: true,
     });
 
-    // ডিলিট ও ক্লিনআপ
+    // ক্লিনআপ
     await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
     if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
 
     return true;
   } catch (err) {
-    console.error('YouTube Processing Error Details:', err);
+    console.error('YouTube Processing Error:', err);
 
     await client.editMessage(chatId, {
       message: statusMsg.id,
