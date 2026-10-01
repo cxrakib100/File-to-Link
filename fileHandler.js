@@ -4,7 +4,7 @@ const BASE_URL = (process.env.BASE_URL || '').replace(/\/$/, '');
 // ৫০০ মেগাবাইট সাইজ লিমিট
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
 
-// ১০-১৫টি শক্তিশালী ও বিজ্ঞাপনহীন শর্টনার প্রোভাইডারের তালিকা
+// ১০-১৫টি শক্তিশালী ও বিজ্ঞাপনহীন শর্টনার প্রোভাইডারের তালিকা (আপনার মূল ৬টি অক্ষুণ্ণ)
 const SHORTENER_SERVICES = [
   // ১. clck.ru
   async (url) => {
@@ -67,46 +67,41 @@ const SHORTENER_SERVICES = [
   }
 ];
 
-// শর্ট লিংক তৈরি হওয়ার পর বট নিজে ক্লিক করে লাইভ টেস্ট করার ফাংশন
+// শর্ট লিংক তৈরি হওয়ার পর বট নিজে ক্লিক করে লাইভ টেস্ট করার ফাংশন (আপনার মূল ফাংশন)
 async function verifyShortLinkLive(shortUrl, originalUrl) {
   try {
-    // সরাসরি হেড রিকোয়েস্ট পাঠিয়ে যাচাই করা (এটি কি আসল লিংকে রিডাইরেক্ট করে?)
     const res = await fetch(shortUrl, {
       method: 'HEAD',
       redirect: 'manual', // রিডাইরেক্ট কোড চেক
       signal: AbortSignal.timeout(2500)
     });
 
-    // ৩০১ বা ৩০২ রিডাইরেক্ট আসলে লিংক ১০০% লাইভ ও পারফেক্ট
     if ([301, 302, 307, 308].includes(res.status)) {
       return true;
     }
 
-    // অথবা ডিরেক্ট ২০০ ওকে পেলে
     if (res.status === 200) {
       return true;
     }
   } catch (e) {
-    // লাইভ টেস্ট ফেইল করলে ফলস রিটার্ন করবে
     return false;
   }
   return false;
 }
 
-// সেলফ-হিলিং শর্টনার ম্যানেজার (একটি ফেইল করলে লাইভ চেক করে পরেরটিতে যাবে)
+// সেলফ-হিলিং শর্টনার ম্যানেজার (আপনার মূল সিকোয়েন্স ও লাইভ চেক অক্ষুণ্ণ)
 async function getBulletproofShortLink(longUrl, channelMsgId) {
   for (const shortener of SHORTENER_SERVICES) {
     try {
       const candidateUrl = await shortener(longUrl);
       if (candidateUrl) {
-        // বট নিজে লাইভ চেক করছে লিংকটি কাজ করে কিনা
         const isWorking = await verifyShortLinkLive(candidateUrl, longUrl);
         if (isWorking) {
-          return candidateUrl; // ১০০% সফল হলে এই লিংকটিই ইউজারকে দেওয়া হবে
+          return candidateUrl;
         }
       }
     } catch (e) {
-      continue; // ফেইল করলে পরের শর্টনারে চলে যাবে
+      continue;
     }
   }
 
