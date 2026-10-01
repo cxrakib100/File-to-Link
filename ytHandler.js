@@ -1,53 +1,45 @@
 const { Button } = require('telegram/tl/custom/button');
 
-// ইউটিউব ডাউনলোডার হ্যান্ডলার
-async function handleYouTubeDownload(client, chatId, text) {
+// ইউটিউব হ্যান্ডলার (টেলিগ্রাম প্রিভিউ ডিটেকশন ও ১-ক্লিক ডিরেক্ট ডাউনলোড)
+async function handleYouTubeDownload(client, chatId, text, message) {
   const ytRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
   const ytMatch = text.match(ytRegex);
 
   if (!ytMatch) return false;
 
   const videoId = ytMatch[1];
-  const cleanUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-  const statusMsg = await client.sendMessage(chatId, {
-    message: '⚡ **ইউটিউব ভিডিও পাওয়া গেছে! ডাউনলোড বাটন প্রস্তুত করা হচ্ছে...**',
+  // টেলিগ্রামের নিজস্ব প্রিভিউ থেকে টাইটেল নেওয়া
+  let videoTitle = 'YouTube Video';
+  if (message && message.media && message.media.webpage) {
+    videoTitle = message.media.webpage.title || videoTitle;
+  }
+
+  // সরাসরি নো-অ্যাড ডিরেক্ট হাই-স্পিড MP4 স্ট্রিম লিংক
+  // এটিতে ক্লিক করা মাত্র ব্রাউজারে কোনো পেজ ছাড়াই সরাসরি ফাইল ডাউনলোড শুরু হয়ে যাবে
+  const direct720p = `https://yewtu.be/latest_version?id=${videoId}&itag=22`;
+  const direct360p = `https://yewtu.be/latest_version?id=${videoId}&itag=18`;
+  const directAudio = `https://yewtu.be/latest_version?id=${videoId}&itag=140`;
+
+  // ব্যাকআপ সুপারফাস্ট মিরর
+  const fastMirror = `https://co.wuk.sh/`;
+
+  await client.sendMessage(chatId, {
+    message: 
+`🎬 **${videoTitle}**
+
+🔗 **ভিডিও আইডি:** \`${videoId}\`
+
+নিচের বাটনে চাপ দেওয়া মাত্র কোনো বিজ্ঞাপন ছাড়াই **সরাসরি আপনার মোবাইলে ভিডিও ডাউনলোড হওয়া শুরু হবে:**`,
+    buttons: [
+      [Button.url('📥 ১-ক্লিকে ডাউনলোড (720p HD)', direct720p)],
+      [Button.url('📥 ১-ক্লিকে ডাউনলোড (360p Normal)', direct360p)],
+      [Button.url('🎵 ১-ক্লিকে ডাউনলোড (Audio/MP3)', directAudio)]
+    ],
     parseMode: 'md',
   });
 
-  try {
-    // সরাসরি দ্রুতগতির ডাউনলোড গেটওয়ে লিংক
-    const dl1080p = `https://y2mate.nu/en/download?url=${encodeURIComponent(cleanUrl)}`;
-    const dl720p = `https://ssyoutube.com/en795/youtube-video-downloader?url=${encodeURIComponent(cleanUrl)}`;
-    const dlMp3 = `https://y2mate.nu/en/mp3?url=${encodeURIComponent(cleanUrl)}`;
-
-    // ইউজারের চ্যাটে সুন্দর বাটন সহ পাঠানো
-    await client.editMessage(chatId, {
-      message: statusMsg.id,
-      text: 
-`🎬 **ইউটিউব ভিডিও প্রস্তুত!**
-
-🔗 **ভিডিও আইডি:** \`${videoId}\`
-📺 **কোয়ালিটি:** 1080p Full HD / 720p HD
-
-নিচের যেকোনো বাটনে ক্লিক করে সরাসরি অডিও সহ সম্পূর্ণ ভিডিওটি আপনার ফোনে নামিয়ে নিন:`,
-      buttons: [
-        [Button.url('📥 ডাউনলোড ১০৮০p (Full HD)', dl1080p)],
-        [Button.url('📥 ডাউনলোড ৭২০p (HD)', dl720p)],
-        [Button.url('🎵 ডাউনলোড অডিও (MP3)', dlMp3)]
-      ],
-      parseMode: 'md',
-    });
-
-    return true;
-  } catch (err) {
-    console.error('YouTube Button Error:', err);
-    await client.editMessage(chatId, {
-      message: statusMsg.id,
-      text: '❌ ভিডিও প্রসেস করতে সাময়িক সমস্যা হয়েছে। লিংকটি আবার পাঠান।',
-    });
-    return true;
-  }
+  return true;
 }
 
 module.exports = { handleYouTubeDownload };
