@@ -25,37 +25,42 @@ const userTimeouts = new Map();
 
 const TWO_HOURS = 2 * 60 * 60 * 1000; // ২ ঘণ্টা (মিলিসেকেন্ডে)
 
-// আপনার দেওয়া কাস্টমাইজড প্রিমিয়াম টেক্সটসমূহ
 const MAIN_MENU_TEXT = 
 `🏠 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮
 ━━━━━━━━━━━━━━━━━━━━━━
+
 ✨ নিচের বাটন থেকে আপনার
 প্রয়োজনীয় সার্ভিসটি বেছে নিন।
+
 ━━━━━━━━━━━━━━━━━━━━━━`;
 
 const FILE_SERVICE_TEXT = 
 `📁 𝐅𝐢𝐥𝐞 𝐭𝐨 𝐋𝐢𝐧𝐤 𝐒𝐞𝐫𝐯𝐢𝐜𝐞
 ━━━━━━━━━━━━━━━━━━━━━━
-📥 যেকোনো ফাইল, PDF, ভিডিও বা ছবি
-📦 সর্বোচ্চ ১০০ MB পর্যন্ত পাঠান।
+
+📥 যেকোনো ফাইল, PDF, APK, ভিডিও বা ছবি
+📦 সর্বোচ্চ ৫০০ MB পর্যন্ত পাঠান।
 
 ⚡ 𝐈𝐧𝐬𝐭𝐚𝐧𝐭 𝐃𝐢𝐫𝐞𝐜𝐭 𝐋𝐢𝐧𝐤
 🔗 সাথে সাথেই ১-ক্লিক ডাউনলোড লিংক পাবেন।
 
- 🏠 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮-তে ফিরতে
-'🔙 𝐁𝐚𝐜𝐤 বাটন চাপুন।
+🔙 🏠 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮-তে ফিরতে
+'🔙 𝐁𝐚𝐜𝐤' চাপুন।
+
 ━━━━━━━━━━━━━━━━━━━━━━`;
 
 const TIKTOK_SERVICE_TEXT = 
-`🎬 𝐓𝐢𝐤𝐓𝐨𝐤 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐞𝐫.
+`🎬 𝐓𝐢𝐤𝐓𝐨𝐤 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐞𝐫
 ━━━━━━━━━━━━━━━━━━━━━━
+
 📥 TikTok ভিডিওর 🔗 লিংকটি পাঠান।
 
 ✨ 𝐖𝐢𝐭𝐡𝐨𝐮𝐭 𝐖𝐚𝐭𝐞𝐫𝐦𝐚𝐫𝐤
 🎥 𝐇𝐢𝐠𝐡-𝐐𝐮𝐚𝐥𝐢𝐭𝐲 𝐕𝐢𝐝𝐞𝐨
 
- 🏠 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮-তে ফিরতে
-'🔙 𝐁𝐚𝐜𝐤 বাটন চাপুন।
+🔙 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮-তে
+ফিরতে '🔙 𝐁𝐚𝐜𝐤' চাপুন।
+
 ━━━━━━━━━━━━━━━━━━━━━━`;
 
 // ২ ঘণ্টার অটো-ব্যাক টাইমার
@@ -88,7 +93,7 @@ function cancelAutoBackTimer(userId) {
   }
 }
 
-// প্রধান মেনুর কিবোর্ড (গ্রিন, ব্লু ও রেড বাটন)
+// প্রধান মেনুর কিবোর্ড
 async function sendMainMenu(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
@@ -102,11 +107,11 @@ async function sendMainMenu(chatId, text) {
         reply_markup: {
           keyboard: [
             [
-              { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "success" },          // 🟢 গ্রিন বাটন (১ম লাইন বামে)
-              { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }           // 🔵 ব্লু বাটন (১ম লাইন ডানে)
+              { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "success" },          // 🟢 গ্রিন বাটন
+              { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }           // 🔵 ব্লু বাটন
             ],
             [
-              { text: "𝐒𝐮𝐩𝐩𝐨𝐫𝐭", style: "danger" }                 // 🔴 রেড বাটন (সবার নিচে)
+              { text: "𝐒𝐮𝐩𝐩𝐨𝐫𝐭", style: "danger" }                 // 🔴 রেড বাটন
             ]
           ],
           resize_keyboard: true
@@ -118,7 +123,7 @@ async function sendMainMenu(chatId, text) {
   }
 }
 
-// সাব-মেনু কিবোর্ড (নিচে ব্যাক বাটন)
+// সাব-মেনু কিবোর্ড
 async function sendBackMenu(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
@@ -144,7 +149,7 @@ async function sendBackMenu(chatId, text) {
   }
 }
 
-// ১. ইনলাইন ভেরিফিকেশন হ্যান্ডলার
+// ১. ইনলাইন ভেরিফিকেশন
 client.addEventHandler(async (update) => {
   if (update.className === 'UpdateBotCallbackQuery') {
     const data = update.data ? update.data.toString() : '';
@@ -184,12 +189,11 @@ client.addEventHandler(async (update) => {
   }
 });
 
-// ২. টেক্সট ও মেনু হ্যান্ডলার
+// ২. মূল মেসেজ হ্যান্ডলার (ফাইল আগে চেক করবে যাতে ক্যাপশনের শব্দে বাটন ট্রিপ না করে)
 client.addEventHandler(async (event) => {
   const message = event.message;
   if (!message) return;
 
-  const text = (message.text || '').trim();
   const senderId = message.senderId;
   const chatId = message.chatId;
 
@@ -200,7 +204,24 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // /start কমান্ড দিলে প্রধান মেনু দেখানো
+  // ★ ১ নম্বর অগ্রাধিকার: মেসেজের সাথে কোনো ফাইল/ডকুমেন্ট/APK/ছবি থাকলে সেটি আগে হ্যান্ডল হবে
+  const hasRealFile = message.media && (message.media.document || message.media.photo);
+  if (hasRealFile) {
+    const currentMode = userModes.get(String(senderId)) || 'file';
+    if (currentMode === 'tiktok') {
+      await message.reply({ message: '⚠️ আপনি **টিকটক মোডে** আছেন! ফাইল আপলোড করতে নিচে **"🔙 𝐁𝐚𝐜𝐤"** বাটনে চাপ দিয়ে **"𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤"** সিলেক্ট করুন।' });
+      return;
+    }
+
+    startAutoBackTimer(chatId, senderId);
+    await processFileUpload(client, message);
+    return;
+  }
+
+  // ★ ২ নম্বর অগ্রাধিকার: সাধারণ টেক্সট বা বাটন ক্লিক
+  const text = (message.text || '').trim();
+
+  // /start কমান্ড দিলে
   if (text.startsWith('/start')) {
     userModes.set(String(senderId), 'main');
     cancelAutoBackTimer(senderId);
@@ -210,7 +231,7 @@ client.addEventHandler(async (event) => {
   }
 
   // বাটন ১: 𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤
-  if (text.includes('𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤') || text.includes('File To Link') || text === '/file') {
+  if (text === '𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤' || text === 'File To Link' || text === '/file') {
     userModes.set(String(senderId), 'file');
     startAutoBackTimer(chatId, senderId);
 
@@ -219,7 +240,7 @@ client.addEventHandler(async (event) => {
   }
 
   // বাটন ২: 𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨
-  if (text.includes('𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨') || text.includes('Tiktok Video') || text === '/tiktok') {
+  if (text === '𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨' || text === 'Tiktok Video' || text === '/tiktok') {
     userModes.set(String(senderId), 'tiktok');
     startAutoBackTimer(chatId, senderId);
 
@@ -227,8 +248,8 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // বাটন ৩: 𝐒𝐮𝐩𝐩𝐨𝐫𝐭
-  if (text.includes('𝐒𝐮𝐩𝐩𝐨𝐫𝐭') || text.includes('Support')) {
+  // বাটন ৩: 𝐒𝐮𝐩𝐩𝐨𝐫𝐭 (শুধুমাত্র ইউজার নিজে বাটন চাপলে আসবে, কোনো ফরোয়ার্ড ক্যাপশনে কাজ করবে না)
+  if (text === '𝐒𝐮𝐩𝐩𝐨𝐫𝐭' || text === 'Support') {
     const prefillText = encodeURIComponent('আসসালামু আলাইকুম ভাইয়া!');
     const supportUrl = `https://t.me/cx_rakib?text=${prefillText}`;
 
@@ -247,7 +268,7 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // বাটন ৪: '🔙 𝐁𝐚𝐜𝐤' চাপলে
+  // বাটন ৪: '🔙 𝐁𝐚𝐜𝐤'
   if (text.includes('𝐁𝐚𝐜𝐤') || text.includes('Back') || text === '/back') {
     userModes.set(String(senderId), 'main');
     cancelAutoBackTimer(senderId);
@@ -261,20 +282,6 @@ client.addEventHandler(async (event) => {
   if (isTikTokLink) {
     startAutoBackTimer(chatId, senderId);
     await handleTikTokDownload(client, chatId, text);
-    return;
-  }
-
-  // ফাইল টু লিংক হ্যান্ডলার
-  const hasRealFile = message.media && (message.media.document || message.media.photo);
-  if (hasRealFile) {
-    const currentMode = userModes.get(String(senderId)) || 'file';
-    if (currentMode === 'tiktok') {
-      await message.reply({ message: '⚠️ আপনি **টিকটক মোডে** আছেন! ফাইল আপলোড করতে নিচে **"🔙 𝐁𝐚𝐜𝐤"** বাটনে চাপ দিয়ে **"𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤"** সিলেক্ট করুন।' });
-      return;
-    }
-
-    startAutoBackTimer(chatId, senderId);
-    await processFileUpload(client, message);
     return;
   }
 
