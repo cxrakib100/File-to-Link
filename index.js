@@ -3,6 +3,7 @@ const express = require('express');
 const { TelegramClient, Api } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 const { NewMessage } = require('telegram/events');
+const { Button } = require('telegram/tl/custom/button');
 
 // মডিউলসমূহ
 const { isUserJoined, sendJoinPrompt } = require('./forceSub');
@@ -21,7 +22,7 @@ let botUsername = '';
 
 const userModes = new Map();
 
-// ১. প্রধান মেনু কিবোর্ড (সবুজ ও লাল বাটন)
+// আপনার কাঙ্ক্ষিত গ্রিন, ব্লু ও রেড বাটন কিবোর্ড
 async function sendMainMenu(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
@@ -35,8 +36,11 @@ async function sendMainMenu(chatId, text) {
         reply_markup: {
           keyboard: [
             [
-              { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "success" },          // 🟢 গ্রিন বাটন
-              { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "danger" }           // 🔴 লাল বাটন
+              { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "success" },          // 🟢 গ্রিন বাটন (১ম লাইন বামে)
+              { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }           // 🔵 ব্লু বাটন (১ম লাইন ডানে)
+            ],
+            [
+              { text: "𝐒𝐮𝐩𝐩𝐨𝐫𝐭", style: "danger" }                 // 🔴 রেড বাটন (সবার নিচে)
             ]
           ],
           resize_keyboard: true
@@ -48,7 +52,7 @@ async function sendMainMenu(chatId, text) {
   }
 }
 
-// ২. সাব-মেনু কিবোর্ড (শুধুমাত্র '🔙 𝐁𝐚𝐜𝐤' বাটন)
+// সাব-মেনু কিবোর্ড (নিচে ব্যাক বাটন)
 async function sendBackMenu(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
@@ -62,7 +66,7 @@ async function sendBackMenu(chatId, text) {
         reply_markup: {
           keyboard: [
             [
-              { text: "🔙 𝐁𝐚𝐜𝐤", style: "danger" } // 🔴 লাল ব্যাক বাটন
+              { text: "🔙 𝐁𝐚𝐜𝐤", style: "danger" }
             ]
           ],
           resize_keyboard: true
@@ -74,7 +78,7 @@ async function sendBackMenu(chatId, text) {
   }
 }
 
-// ৩. ইনলাইন ভেরিফিকেশন হ্যান্ডলার
+// ১. ইনলাইন ভেরিফিকেশন হ্যান্ডলার
 client.addEventHandler(async (update) => {
   if (update.className === 'UpdateBotCallbackQuery') {
     const data = update.data ? update.data.toString() : '';
@@ -99,7 +103,7 @@ client.addEventHandler(async (update) => {
         userModes.set(String(senderId), 'main');
         await sendMainMenu(
           senderId,
-          `🎉 **স্বাগতম! চ্যানেল ভেরিফিকেশন সফল হয়েছে।**\n\n⚡ **বটের সব সার্ভিস এখন সম্পূর্ণ সক্রিয়!**\n\nনিচের বাটন থেকে প্রয়োজনীয় কাজটি বেছে নিন:\n🟢 **𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤:** ফাইল, ছবি, ভিডিও সরাসরি লিংকে রূপান্তর করতে।\n🔴 **𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨:** টিকটক ভিডিও ওয়াটারমার্ক ছাড়া ডাউনলোড করতে।`
+          `🎉 **স্বাগতম! চ্যানেল ভেরিফিকেশন সফল হয়েছে।**\n\n⚡ **বটের সব সার্ভিস এখন সম্পূর্ণ সক্রিয়!**\n\nনিচের বাটন থেকে প্রয়োজনীয় কাজটি বেছে নিন:`
         );
 
       } else {
@@ -115,7 +119,7 @@ client.addEventHandler(async (update) => {
   }
 });
 
-// ৪. টেক্সট ও মেনু হ্যান্ডলার
+// ২. টেক্সট ও মেনু হ্যান্ডলার
 client.addEventHandler(async (event) => {
   const message = event.message;
   if (!message) return;
@@ -136,37 +140,57 @@ client.addEventHandler(async (event) => {
     userModes.set(String(senderId), 'main');
     await sendMainMenu(
       chatId,
-      `🏠 **প্রধান মেনু — File To Link & Media Hub**\n━━━━━━━━━━━━━━━━━━━━━━\nবটের সব সার্ভিস এখন সক্রিয়! নিচের মেনু বাটন থেকে আপনার প্রয়োজনীয় সার্ভিসটি নির্বাচন করুন:\n\n🟢 **𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤:**\nযেকোনো ফাইল, ডকুমেন্ট, ভিডিও বা ১০০ এমবি পর্যন্ত পিডিএফের সরাসরি ১-ক্লিক ডাউনলোড লিংক তৈরি করতে।\n\n🔴 **𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨:**\nটিকটক ভিডিও কোনো ওয়াটারমার্ক ছাড়া ফুল এইচডি কোয়ালিটিতে সরাসরি ডাউনলোড করতে।\n━━━━━━━━━━━━━━━━━━━━━━`
+      `🏠 **প্রধান মেনু — File To Link & Media Hub**\n━━━━━━━━━━━━━━━━━━━━━━\nবটের সব সার্ভিস সক্রিয়! নিচের বাটন থেকে নির্বাচন করুন:\n\n🟢 **𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤:** ফাইল সরাসরি লিংকে রূপান্তর করতে।\n🔵 **𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨:** টিকটক ভিডিও ওয়াটারমার্ক ছাড়া ডাউনলোড করতে।\n🔴 **𝐒𝐮𝐩𝐩𝐨𝐫𝐭:** অ্যাডমিনের সাথে সরাসরি যোগাযোগ করতে।\n━━━━━━━━━━━━━━━━━━━━━━`
     );
     return;
   }
 
-  // বাটন ১: 𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤 চাপলে (সুন্দর প্রিমিয়াম মেসেজ ও ব্যাক বাটন)
+  // বাটন ১: 𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤 (গ্রিন বাটন)
   if (text.includes('𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤') || text.includes('File To Link') || text === '/file') {
     userModes.set(String(senderId), 'file');
     await sendBackMenu(
       chatId,
-      `📁 **ফাইল টু লিংক সার্ভিস সক্রিয় হয়েছে!**\n━━━━━━━━━━━━━━━━━━━━━━\n📥 **কীভাবে ব্যবহার করবেন:**\nআমাকে যেকোনো **ফাইল, পিডিএফ, ভিডিও বা ছবি (১০০ এমবি পর্যন্ত)** পাঠান।\n\n⚡ সাথে সাথে একটি সরাসরি ১-ক্লিক ডাউনলোড লিংক তৈরি করে দেওয়া হবে, যা যেকোনো ব্রাউজার ও মেসেঞ্জারে সহজে ওপেন হবে।\n\n🔙 *প্রধান মেনুতে ফিরে যেতে চাইলে নিচের '🔙 𝐁𝐚𝐜𝐤' বাটন চাপুন।*\n━━━━━━━━━━━━━━━━━━━━━━`
+      `📁 **ফাইল টু লিংক সার্ভিস সক্রিয় হয়েছে!**\n━━━━━━━━━━━━━━━━━━━━━━\n📥 **কীভাবে ব্যবহার করবেন:**\nআমাকে যেকোনো **ফাইল, পিডিএফ, ভিডিও বা ছবি (১০০ এমবি পর্যন্ত)** পাঠান।\n\n⚡ সাথে সাথে একটি সরাসরি ১-ক্লিক ডাউনলোড লিংক তৈরি করে দেওয়া হবে।\n\n🔙 *প্রধান মেনুতে ফিরে যেতে চাইলে নিচের '🔙 𝐁𝐚𝐜𝐤' বাটন চাপুন।*\n━━━━━━━━━━━━━━━━━━━━━━`
     );
     return;
   }
 
-  // বাটন ২: 𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨 চাপলে (সুন্দর প্রিমিয়াম মেসেজ ও ব্যাক বাটন)
+  // বাটন ২: 𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨 (ব্লু বাটন)
   if (text.includes('𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨') || text.includes('Tiktok Video') || text === '/tiktok') {
     userModes.set(String(senderId), 'tiktok');
     await sendBackMenu(
       chatId,
-      `🎬 **টিকটক ভিডিও ডাউনলোডার সক্রিয় হয়েছে!**\n━━━━━━━━━━━━━━━━━━━━━━\n📥 **কীভাবে ব্যবহার করবেন:**\nআপনার কাঙ্ক্ষিত টিকটক ভিডিওর লিংকটি এখানে পেস্ট করে সেন্ড করুন।\n\n✨ কোনো ওয়াটারমার্ক ছাড়া সরাসরি হাই-কোয়ালিটি ভিডিও এই চ্যাটেই পাঠিয়ে দেওয়া হবে।\n\n🔙 *প্রধান মেনুতে ফিরে যেতে চাইলে নিচের '🔙 𝐁𝐚𝐜𝐤' বাটন চাপুন।*\n━━━━━━━━━━━━━━━━━━━━━━`
+      `🎬 **টিকটক ভিডিও ডাউনলোডার সক্রিয় হয়েছে!**\n━━━━━━━━━━━━━━━━━━━━━━\n📥 **কীভাবে ব্যবহার করবেন:**\nআপনার কাঙ্ক্ষিত টিকটক ভিডিওর লিংকটি এখানে পেস্ট করে সেন্ড করুন।\n\n✨ কোনো ওয়াটারমার্ক ছাড়া সরাসরি হাই-কোয়ালিটি ভিডিও এই চ্যাটেই পেয়ে যাবেন।\n\n🔙 *প্রধান মেনুতে ফিরে যেতে চাইলে নিচের '🔙 𝐁𝐚𝐜𝐤' বাটন চাপুন।*\n━━━━━━━━━━━━━━━━━━━━━━`
     );
     return;
   }
 
-  // বাটন ৩: '🔙 𝐁𝐚𝐜𝐤' চাপলে (কোনো ডিলিট গ্লিচ ছাড়া সরাসরি হোমস্ক্রিন চালু হবে)
+  // বাটন ৩: 𝐒𝐮𝐩𝐩𝐨𝐫𝐭 (রেড বাটন - সরাসরি প্রি-ফিল্ড মেসেজ সহ লিংক)
+  if (text.includes('𝐒𝐮𝐩𝐩𝐨𝐫𝐭') || text.includes('Support')) {
+    const prefillText = encodeURIComponent('আসসালামু আলাইকুম ভাইয়া!');
+    const supportUrl = `https://t.me/cx_rakib?text=${prefillText}`;
+
+    await client.sendMessage(chatId, {
+      message: 
+`👨‍💻 **অ্যাডমিন সাপোর্ট ও সহায়তা কেন্দ্র**
+━━━━━━━━━━━━━━━━━━━━━━
+যেকোনো সমস্যা, প্রশ্ন বা সহায়তার জন্য সরাসরি অ্যাডমিনের সাথে যোগাযোগ করতে পারেন।
+
+👇 **নিচের বাটনে ক্লিক করুন (মেসেজ আগে থেকেই রেডি থাকবে):**`,
+      buttons: [
+        [Button.url('💬 অ্যাডমিনকে মেসেজ পাঠান', supportUrl)]
+      ],
+      parseMode: 'md',
+    });
+    return;
+  }
+
+  // বাটন ৪: '🔙 𝐁𝐚𝐜𝐤' চাপলে
   if (text.includes('𝐁𝐚𝐜𝐤') || text.includes('Back') || text === '/back') {
     userModes.set(String(senderId), 'main');
     await sendMainMenu(
       chatId,
-      `🏠 **প্রধান মেনু**\n━━━━━━━━━━━━━━━━━━━━━━\nনিচের বাটন থেকে প্রয়োজনীয় কাজটি বেছে নিন:\n\n🟢 **𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤** — ফাইল সরাসরি লিংকে রূপান্তর\n🔴 **𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨** — ওয়াটারমার্ক ছাড়া টিকটক ভিডিও\n━━━━━━━━━━━━━━━━━━━━━━`
+      `🏠 **প্রধান মেনু**\n━━━━━━━━━━━━━━━━━━━━━━\nনিচের বাটন থেকে প্রয়োজনীয় সার্ভিসটি বেছে নিন:`
     );
     return;
   }
@@ -183,7 +207,7 @@ client.addEventHandler(async (event) => {
   if (hasRealFile) {
     const currentMode = userModes.get(String(senderId)) || 'file';
     if (currentMode === 'tiktok') {
-      await message.reply({ message: '⚠️ আপনি বর্তমানে **টিকটক মোডে** আছেন! ফাইল আপলোড করতে নিচে **"🔙 𝐁𝐚𝐜𝐤"** বাটনে চাপ দিয়ে **"𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤"** সিলেক্ট করুন।' });
+      await message.reply({ message: '⚠️ আপনি **টিকটক মোডে** আছেন! ফাইল আপলোড করতে নিচে **"🔙 𝐁𝐚𝐜𝐤"** বাটনে চাপ দিয়ে **"𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤"** সিলেক্ট করুন।' });
       return;
     }
 
