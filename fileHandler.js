@@ -176,7 +176,7 @@ async function processFileUpload(client, message) {
 📄 <b>নাম:</b> ${fileName}
 📦 <b>সাইজ:</b> ${sizeMB} MB
 
-📥 <b>সরাসরি ডাউনলোড লিংক (One-Click):</b>
+📥 <b>সরাসরি ডাউনলোড লিংক 👇 </b>
 👉 <a href="${downloadLink}"><b>[ 𝐃𝐎𝐖𝐍𝐋𝐎𝐀𝐃 ✅ ]</b></a>
 
 <b>𝐒𝐡𝐨𝐫𝐭 𝐋𝐢𝐧𝐤~👇</b>
