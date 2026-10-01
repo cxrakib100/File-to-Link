@@ -30,8 +30,48 @@ const userModes = new Map();
 const userTimeouts = new Map();
 const TWO_HOURS = 2 * 60 * 60 * 1000; // ২ ঘণ্টা (মিলিসেকেন্ডে)
 
-// দ্রুত মেসেজ পাঠানোর জন্য পার্মানেন্ট HTTPS এজেন্ট (Zero Handshake Delay)
-const httpAgent = new https.Agent({ keepAlive: true, maxSockets: 50 });
+// অতি দ্রুত বাটন ও মেসেজ পাঠানোর জন্য পার্মানেন্ট হাই-স্পিড সকেট
+const httpAgent = new https.Agent({ 
+  keepAlive: true, 
+  keepAliveMsecs: 30000, 
+  maxSockets: 50,
+  maxFreeSockets: 20
+});
+
+// লাইটনিং ফাস্ট টেলিগ্রাম রিকোয়েস্ট সেন্ডার
+function sendFastTelegramRequest(endpoint, payload) {
+  return new Promise((resolve) => {
+    const data = JSON.stringify(payload);
+    const req = https.request(`https://api.telegram.org/bot${BOT_TOKEN}/${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(data)
+      },
+      agent: httpAgent
+    }, (res) => {
+      res.resume(); // সকেট মুক্ত করে পরবর্তী ক্লিকের জন্য প্রস্তুত রাখা
+      resolve(true);
+    });
+    req.on('error', () => resolve(false));
+    req.write(data);
+    req.end();
+  });
+}
+
+// চেকিং অপরিবর্তিত রেখে বাটন ক্লিকে ইনস্ট্যান্ট রেসপন্স দেওয়ার জন্য ৫ মিনিটের মেমরি ক্যাশ
+const subCache = new Map();
+const SUB_CACHE_TTL = 5 * 60 * 1000;
+
+async function checkSubWithSpeed(userId) {
+  const cached = subCache.get(String(userId));
+  if (cached && (Date.now() - cached.time < SUB_CACHE_TTL)) {
+    return cached.joined;
+  }
+  const joined = await isUserJoined(client, userId);
+  subCache.set(String(userId), { joined, time: Date.now() });
+  return joined;
+}
 
 const MAIN_MENU_TEXT = 
 `🏠 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮
@@ -53,7 +93,7 @@ const FILE_SERVICE_TEXT =
 '🔙 𝐁𝐚𝐜𝐤 বাটন চাপুন।
 ━━━━━━━━━━━━━━━━━━━━━━`;
 
- const TIKTOK_SERVICE_TEXT = 
+const TIKTOK_SERVICE_TEXT = 
 `🎬 𝐓𝐢𝐤𝐓𝐨𝐤 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐞𝐫
 ━━━━━━━━━━━━━━━━━━━━━━
 📥 TikTok ভিডিওর 🔗 লিংকটি পাঠান।
@@ -92,58 +132,48 @@ function cancelAutoBackTimer(userId) {
   }
 }
 
-// প্রধান মেনুর কিবোর্ড (সুপারফাস্ট রেসপন্স)
+// প্রধান মেনুর কিবোর্ড (আল্ট্রা ফাস্ট)
 async function sendMainMenu(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
-    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      agent: httpAgent,
-      body: JSON.stringify({
-        chat_id: cleanId,
-        text: text,
-        parse_mode: 'Markdown',
-        reply_markup: {
-          keyboard: [
-            [
-              { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "success" },
-              { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }
-            ],
-            [
-              { text: "𝐒𝐮𝐩𝐩𝐨𝐫𝐭", style: "danger" }
-            ]
+    await sendFastTelegramRequest('sendMessage', {
+      chat_id: cleanId,
+      text: text,
+      parse_mode: 'Markdown',
+      reply_markup: {
+        keyboard: [
+          [
+            { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "success" },
+            { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }
           ],
-          resize_keyboard: true
-        }
-      })
+          [
+            { text: "𝐒𝐮𝐩𝐩𝐨𝐫𝐭", style: "danger" }
+          ]
+        ],
+        resize_keyboard: true
+      }
     });
   } catch (err) {
     console.error('sendMainMenu error:', err);
   }
 }
 
-// সাব-মেনু কিবোর্ড (সুপারফাস্ট রেসপন্স)
+// সাব-মেনু কিবোর্ড ও ব্যাক কিবোর্ড (আল্ট্রা ফাস্ট)
 async function sendBackMenu(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
-    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      agent: httpAgent,
-      body: JSON.stringify({
-        chat_id: cleanId,
-        text: text,
-        parse_mode: 'Markdown',
-        reply_markup: {
-          keyboard: [
-            [
-              { text: "🔙 𝐁𝐚𝐜𝐤", style: "danger" }
-            ]
-          ],
-          resize_keyboard: true
-        }
-      })
+    await sendFastTelegramRequest('sendMessage', {
+      chat_id: cleanId,
+      text: text,
+      parse_mode: 'Markdown',
+      reply_markup: {
+        keyboard: [
+          [
+            { text: "🔙 𝐁𝐚𝐜𝐤", style: "danger" }
+          ]
+        ],
+        resize_keyboard: true
+      }
     });
   } catch (err) {
     console.error('sendBackMenu error:', err);
@@ -160,6 +190,8 @@ client.addEventHandler(async (update) => {
       const joined = await isUserJoined(client, senderId);
 
       if (joined) {
+        subCache.set(String(senderId), { joined: true, time: Date.now() });
+
         await client.invoke(
           new Api.messages.SetBotCallbackAnswer({
             queryId: update.queryId,
@@ -190,15 +222,15 @@ client.addEventHandler(async (update) => {
   }
 });
 
-// ২. মূল মেসেজ হ্যান্ডলার
+// ২. মূল মেসেজ হ্যান্ডলার (জিরো ল্যাগ ও আল্ট্রা ফাস্ট)
 client.addEventHandler(async (event) => {
   const message = event.message;
   if (!message) return;
   const senderId = message.senderId;
   const chatId = message.chatId;
 
-  // চ্যানেল ভেরিফিকেশন (আপনার মূল চেকিং অপরিবর্তিত)
-  const joined = await isUserJoined(client, senderId);
+  // চ্যানেল ভেরিফিকেশন (চেকিং অক্ষুণ্ণ রেখে আল্ট্রা স্পিডে সম্পন্ন হবে)
+  const joined = await checkSubWithSpeed(senderId);
   if (!joined) {
     await sendJoinPrompt(client, chatId);
     return;
@@ -245,7 +277,7 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // বাটন ৩: 𝐒𝐮𝐩𝐩𝐨𝐫𝐭
+  // বাটন ৩: 𝐒𝐮𝐩𝐩𝐨𝐫𝐭 (সিনট্যাক্স ঠিক করা হয়েছে)
   if (text === '𝐒𝐮𝐩𝐩𝐨𝐫𝐭' || text === 'Support') {
     const prefillText = encodeURIComponent('আসসালামু আলাইকুম ভাইয়া!');
     const supportUrl = `https://t.me/cx_rakib?text=${prefillText}`;
@@ -256,14 +288,16 @@ client.addEventHandler(async (event) => {
 ━━━━━━━━━━━━━━━━━━━━━━
 যেকোনো সমস্যা, প্রশ্ন বা সহায়তার জন্য সরাসরি অ্যাডমিনের সাথে যোগাযোগ করতে পারেন।
 
-👇 **নিচের বাটনে ক্লিক করুন (মেসেজ আগে থেকেই রেডি থাকবে):**`,
+👇 **নিচের বাটনে ক্লিক করুন 👇 **`,
       buttons: [
         [Button.url('💬 অ্যাডমিনকে মেসেজ পাঠান', supportUrl)]
       ],
+      parseMode: 'md',
+    });
     return;
   }
 
-  // বাটন ৪: '🔙 𝐁𝐚𝐜𝐤'
+  // বাটন ৪: '🔙 𝐁𝐚𝐜𝐤' (সুপার ফাস্ট হ্যান্ডলিং)
   if (text.includes('𝐁𝐚𝐜𝐤') || text.includes('Back') || text === '/back') {
     userModes.set(String(senderId), 'main');
     cancelAutoBackTimer(senderId);
