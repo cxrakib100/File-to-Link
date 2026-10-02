@@ -181,6 +181,7 @@ async function sendBackMenu(chatId, text) {
 }
 
 // ১. ইনলাইন ভেরিফিকেশন
+// ১. ইনলাইন ভেরিফিকেশন (ভেরিফাই হলে মেসেজ উধাও হবে এবং তারপর মেইন মেনু আসবে)
 client.addEventHandler(async (update) => {
   if (update.className === 'UpdateBotCallbackQuery') {
     const data = update.data ? update.data.toString() : '';
@@ -192,6 +193,7 @@ client.addEventHandler(async (update) => {
       if (joined) {
         subCache.set(String(senderId), { joined: true, time: Date.now() });
 
+        // ১. স্ক্রিনে সফলতার পপ-আপ অ্যালার্ট
         await client.invoke(
           new Api.messages.SetBotCallbackAnswer({
             queryId: update.queryId,
@@ -200,16 +202,20 @@ client.addEventHandler(async (update) => {
           })
         );
 
-        try {
-          await client.deleteMessages(update.peer, [update.msgId], { revoke: true });
-        } catch (e) {}
+        // ২. চ্যানেলের জয়েন মেসেজটি সাথে সাথে স্ক্রিন থেকে চিরতরে উধাও (Delete) করে দিবে
+        const cleanUserId = String(senderId).replace(/[^0-9-]/g, '');
+        await sendFastTelegramRequest('deleteMessage', {
+          chat_id: cleanUserId,
+          message_id: update.msgId
+        });
 
+        // ৩. মেসেজ উধাও হওয়ার পরই কেবল বটের মেইন ইন্টারফেস ও বাটন শো করবে
         userModes.set(String(senderId), 'main');
         cancelAutoBackTimer(senderId);
-
         await sendMainMenu(senderId, MAIN_MENU_TEXT);
 
       } else {
+        // চ্যানেলে জয়েন না থাকলে সতর্কবার্তা দিবে
         await client.invoke(
           new Api.messages.SetBotCallbackAnswer({
             queryId: update.queryId,
