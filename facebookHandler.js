@@ -20,7 +20,7 @@ function formatNumber(num) {
   return String(Math.floor(n));
 }
 
-// 📅 আপলোডের তারিখ এবং আজ কত দিন হয় তার নিখুঁত হিসাব
+// 📅 আপলোডের তারিখ ও এক লাইনে সংক্ষিপ্ত বয়স হিসাব
 function formatUploadDate(dateInput) {
   if (!dateInput) return null;
   let d;
@@ -38,48 +38,64 @@ function formatUploadDate(dateInput) {
   if (isNaN(d.getTime())) return null;
 
   const months = ['জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'];
-  const day = String(d.getDate()).padStart(2, '0');
+  const day = d.getDate();
   const monthName = months[d.getMonth()];
   const year = d.getFullYear();
   const formattedDate = `${day} ${monthName} ${year}`;
 
-  // আজ পর্যন্ত দিন হিসাব
   const now = new Date();
   const diffTime = Math.abs(now - d);
   const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
   let agoText = '';
   if (diffDays === 0) {
-    agoText = 'আজকেই আপলোড করা হয়েছে';
+    agoText = 'আজকের ভিডিও';
   } else if (diffDays < 30) {
-    agoText = `${diffDays} দিন আগে`;
+    agoText = `${diffDays} দিন`;
   } else if (diffDays < 365) {
     const monthsAgo = Math.floor(diffDays / 30);
     const remainDays = diffDays % 30;
-    agoText = `${diffDays} দিন আগে (${monthsAgo} মাস ${remainDays} দিন)`;
+    agoText = remainDays > 0 ? `${diffDays} দিন (${monthsAgo} মাস ${remainDays} দিন)` : `${diffDays} দিন (${monthsAgo} মাস)`;
   } else {
     const yearsAgo = Math.floor(diffDays / 365);
     const remainDays = diffDays % 365;
     const monthsAgo = Math.floor(remainDays / 30);
-    agoText = `${diffDays} দিন আগে (${yearsAgo} বছর ${monthsAgo} মাস)`;
+    agoText = `${diffDays} দিন (${yearsAgo} বছর ${monthsAgo} মাস)`;
   }
 
   return { date: formattedDate, ago: agoText };
 }
 
-function cleanTitle(t) {
-  if (!t || typeof t !== 'string') return 'Facebook Video';
+// টাইটেল থেকে ক্রিয়েটর ও বাড়তি অংশ পরিষ্কার করা
+function cleanTitle(t, author) {
+  if (!t || typeof t !== 'string') return 'Facebook Reel';
   let s = t.trim()
     .replace(/^\d+(\.\d+)?[KkMm]?\s*views?\s*[·•|]\s*\d+(\.\d+)?[KkMm]?\s*reactions?\s*[·•|]?\s*/i, '')
     .replace(/^\d+(\.\d+)?[KkMm]?\s*views?\s*/i, '');
-  if (s.length > 90) s = s.substring(0, 90).trim() + '...';
-  return s || 'Facebook Video';
+
+    // 🚫 এই লাইনটি যোগ করা হয়েছে: ডেসক্রিপশনের শুরুতে POV : বা POV থাকলে তা মুছে ফেলবে
+  s = s.replace(/^POV\s*[:\-\s]\s*/i, '');
+  
+  // যদি টাইটেলের শেষে ক্রিয়েটরের নাম থাকে (| Bondi Pathshala School), তা মুছে ফেলা
+  if (author && typeof author === 'string') {
+    const cleanAuthor = author.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const authorRegex = new RegExp(`\\s*[|•·\\-–—]\\s*${cleanAuthor}\\s*$`, 'i');
+    s = s.replace(authorRegex, '');
+  }
+
+  // Facebook বা Reel ট্যাগ থাকলে মোছা
+  s = s.replace(/\s*[|•·\\-–—]\s*(?:Facebook|Reel|Reels|Watch)\s*$/i, '');
+
+  if (s.length > 95) s = s.substring(0, 95).trim() + '...';
+  return s.trim() || 'Facebook Reel';
 }
 
-// 🎨 লাইন বাই লাইন প্রিমিয়াম ক্যাপশন ডিজাইন (তারিখ ও দিনের হিসাব সহ)
+// 🎨 আপনার রিকোয়ারমেন্ট অনুযায়ী পারফেক্ট সিঙ্গেল-লাইন ডিজাইন
 function buildCaption(data) {
-  let caption = '⚡ **ডাউনলোড সম্পন্ন (অডিওসহ)!**\n\n';
-  caption += '🎬 **ভিডিও:** ' + (data.title || 'Facebook Video') + '\n';
+  let caption = '⚡ **ডাউনলোড সম্পন্ন হয়েছে!**\n\n';
+  
+  // ডেসক্রিপশন (ক্রিয়েটরের নাম ছাড়া ক্লিন)
+  caption += '📝 **বিবরণ:** ' + (data.title || 'Facebook Video') + '\n';
   caption += '━━━━━━━━━━━━━━━━━━━━\n';
 
   if (data.author) {
@@ -92,14 +108,14 @@ function buildCaption(data) {
     caption += '❤️ **রিঅ্যাকশন:** ' + formatNumber(data.reactions) + ' Likes\n';
   }
 
-  // 📅 তারিখ ও কত দিন আগের হিসাব
+  // 📅 তারিখ ও সংক্ষিপ্ত বয়স (এক লাইনে দেখাবে)
   const dateInfo = formatUploadDate(data.uploadDate);
   if (dateInfo) {
     caption += '📅 **আপলোড তারিখ:** ' + dateInfo.date + '\n';
-    caption += '⏳ **আজকের হিসাব:** ' + dateInfo.ago + '\n';
+    caption += '⏳ **বয়স:** ' + dateInfo.ago + '\n';
   }
 
-  caption += '✨ **কোয়ালিটি:** ' + (data.quality || 'HD 720p/1080p') + '\n';
+  caption += '✨ **কোয়ালিটি:** ' + (data.quality || 'HD') + '\n';
   caption += '📱 **উৎস:** Facebook\n';
   caption += '━━━━━━━━━━━━━━━━━━━━\n';
   caption += '⚡ **Power By Cx_Rakib**';
@@ -117,34 +133,43 @@ function unescapeFb(str) {
   }
 }
 
-// পেজ থেকে মেটাডাটা ও আপলোড তারিখ স্ক্র্যাপার
+// পেজ মেটাডাটা ও পাওয়ারফুল লাইক স্ক্র্যাপার
 function extractMetaFromHtml(html) {
   let meta = {};
 
   // ভিউজ
-  const viewsMatch = html.match(/"play_count":\s*(\d+)/) || html.match(/"video_view_count":\s*(\d+)/) || html.match(/(\d+(?:\.\d+)?[KkMm]?)\s*views/i);
+  const viewsMatch = html.match(/"play_count":\s*(\d+)/) || 
+                     html.match(/"video_view_count":\s*(\d+)/) || 
+                     html.match(/(\d+(?:\.\d+)?[KkMm]?)\s*views/i);
   if (viewsMatch) meta.views = viewsMatch[1];
 
-  // লাইক / রিঅ্যাকশন
-  const reactMatch = html.match(/"reaction_count":\s*\{\s*"count":\s*(\d+)/) || html.match(/"likers":\s*\{\s*"count":\s*(\d+)/) || html.match(/(\d+(?:\.\d+)?[KkMm]?)\s*likes/i);
+  // রিঅ্যাকশন / লাইক (গ্যারান্টিড ক্যাচ)
+  const reactMatch = html.match(/"reaction_count":\s*\{\s*"count":\s*(\d+)/) || 
+                     html.match(/"reaction_count":\s*(\d+)/) ||
+                     html.match(/"likers":\s*\{\s*"count":\s*(\d+)/) || 
+                     html.match(/"like_count":\s*(\d+)/) ||
+                     html.match(/(\d+(?:\.\d+)?[KkMm]?)\s*(?:reactions?|likes?)/i);
   if (reactMatch) meta.reactions = reactMatch[1];
 
   // ক্রিয়েটর
-  const authorMatch = html.match(/Reel by ([^|•\n<]+)/i) || html.match(/"owner_name":\s*"([^"]+)"/) || html.match(/"name":\s*"([^"]+)"[^}]*"__typename":\s*"User"/);
+  const authorMatch = html.match(/Reel by ([^|•\n<]+)/i) || 
+                      html.match(/"owner_name":\s*"([^"]+)"/) || 
+                      html.match(/"name":\s*"([^"]+)"[^}]*"__typename":\s*"User"/);
   if (authorMatch) meta.author = authorMatch[1].trim();
 
-  // টাইটেল
-  const titleMatch = html.match(/<title>([^<]+)<\/title>/i) || html.match(/<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i);
-  if (titleMatch) meta.title = cleanTitle(titleMatch[1]);
+  // টাইটেল (ক্রিয়েটর ফিল্টারসহ)
+  const titleMatch = html.match(/<title>([^<]+)<\/title>/i) || 
+                     html.match(/<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i);
+  if (titleMatch) meta.title = cleanTitle(titleMatch[1], meta.author);
 
-  // 📅 আপলোডের তারিখ (Timestamp / ISO Date)
+  // আপলোডের সময়
   const timeMatch = html.match(/"publish_time":\s*(\d+)/) ||
                     html.match(/"creation_time":\s*(\d+)/) ||
                     html.match(/"uploadDate":\s*"([^"]+)"/) ||
-                    html.match(/<meta\s+property=["']article:published_time["']\s+content=["']([^"']+)["']/i);
+                    html.match(/<meta\s+property=["']article:published_time["']\s+content=["']([^"]+)"/i);
   if (timeMatch) meta.uploadDate = timeMatch[1];
 
-  // ডিরেক্ট অডিওসহ লিঙ্ক (যদি পেজেই থাকে)
+  // ডিরেক্ট লিংক
   const hd = html.match(/"browser_native_hd_url"\s*:\s*("[^"]+")/) || html.match(/"playable_url_quality_hd"\s*:\s*("[^"]+")/);
   const sd = html.match(/"browser_native_sd_url"\s*:\s*("[^"]+")/) || html.match(/"playable_url"\s*:\s*("[^"]+")/);
   const match = hd || sd;
@@ -159,7 +184,7 @@ function extractMetaFromHtml(html) {
   return meta;
 }
 
-// 🔗 যেকোনো শর্ট/পোস্ট লিঙ্ক সমাধান করা
+// লিঙ্ক রেজলভার
 async function resolveFacebookLink(inputUrl) {
   let targetUrl = inputUrl.trim();
   let cachedMeta = {};
@@ -172,7 +197,7 @@ async function resolveFacebookLink(inputUrl) {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml',
       },
-      signal: AbortSignal.timeout(6000)
+      signal: AbortSignal.timeout(5000)
     });
 
     const html = await res.text();
@@ -207,21 +232,21 @@ async function resolveFacebookLink(inputUrl) {
   }
 }
 
-// 🚀 ENGINE 1: FDown Isuru API (Views, Likes, Date সহ)
+// 🚀 ENGINE 1: FDown API (Views, Likes সহ)
 async function engineFdownApi(fbUrl) {
   try {
     const res = await fetch('https://fdown.isuru.eu.org/download', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url: fbUrl, quality: 'best' }),
-      signal: AbortSignal.timeout(6000)
+      signal: AbortSignal.timeout(5000)
     });
     const data = await res.json();
     const videoUrl = data?.download_url || data?.url || (data?.available_formats && data.available_formats[0]?.url);
     if (videoUrl && videoUrl.startsWith('http')) {
       return {
         url: videoUrl,
-        title: cleanTitle(data?.video_info?.title || data?.title),
+        title: cleanTitle(data?.video_info?.title || data?.title, data?.video_info?.uploader),
         author: data?.video_info?.uploader || null,
         views: data?.video_info?.view_count || null,
         reactions: data?.video_info?.like_count || null,
@@ -242,7 +267,7 @@ async function engineCobalt(fbUrl) {
       method: 'POST',
       headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify({ url: fbUrl, videoQuality: '720', audioFormat: 'mp3' }),
-      signal: AbortSignal.timeout(5000)
+      signal: AbortSignal.timeout(4500)
     });
     const data = await res.json();
     if (data && data.url) {
@@ -259,7 +284,7 @@ async function engineFbdownxyz(fbUrl) {
   try {
     const res = await fetch('https://api.fbdown.xyz/api?url=' + encodeURIComponent(fbUrl), {
       headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(5000)
+      signal: AbortSignal.timeout(4500)
     });
     const data = await res.json();
     const videoUrl = data?.hd || data?.sd || data?.url;
@@ -278,7 +303,7 @@ async function engineFbdownxyz(fbUrl) {
   }
 }
 
-// 🚀 ENGINE 4: yt-dlp ফাস্ট ফলব্যাক (বড় ভিডিওর জন্য অডিও মার্জড)
+// 🚀 ENGINE 4: yt-dlp ফাস্ট ফলব্যাক
 async function engineYtDlpFast(fbUrl) {
   if (!youtubedl) throw new Error('yt-dlp missing');
   const outPath = path.join(os.tmpdir(), 'fb_yt_' + Date.now() + '.mp4');
@@ -305,7 +330,7 @@ async function getFastestVideo(realFbUrl, cachedMeta) {
   if (cachedMeta && cachedMeta.directUrl) {
     return {
       url: cachedMeta.directUrl,
-      title: cachedMeta.title,
+      title: cleanTitle(cachedMeta.title, cachedMeta.author),
       author: cachedMeta.author,
       views: cachedMeta.views,
       reactions: cachedMeta.reactions,
@@ -330,8 +355,8 @@ async function getFastestVideo(realFbUrl, cachedMeta) {
   }
 
   if (videoResult) {
-    videoResult.title = videoResult.title || cachedMeta.title || 'Facebook Video';
     videoResult.author = videoResult.author || cachedMeta.author || null;
+    videoResult.title = cleanTitle(videoResult.title || cachedMeta.title || 'Facebook Video', videoResult.author);
     videoResult.views = videoResult.views || cachedMeta.views || null;
     videoResult.reactions = videoResult.reactions || cachedMeta.reactions || null;
     videoResult.uploadDate = videoResult.uploadDate || cachedMeta.uploadDate || null;
@@ -339,7 +364,7 @@ async function getFastestVideo(realFbUrl, cachedMeta) {
   return videoResult;
 }
 
-// ⚡ ৫-১০ মিনিটের বড় ভিডিওর জন্য 2MB বাফারসহ হাই-স্পিড ডাউনলোড
+// ⚡ ৫-১০ মিনিটের বড় ভিডিওর জন্য 4MB বাফারসহ আল্ট্রা-স্পিড ডাউনলোড
 async function downloadFast(url) {
   const tempPath = path.join(os.tmpdir(), 'fb_' + Date.now() + '.mp4');
   const res = await fetch(url, {
@@ -347,15 +372,15 @@ async function downloadFast(url) {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       'Referer': 'https://www.facebook.com/'
     },
-    signal: AbortSignal.timeout(180000) // ৩ মিনিট বরাদ্দ (বড় ফাইলের জন্য)
+    signal: AbortSignal.timeout(240000) // ৪ মিনিট বরাদ্দ
   });
   if (!res.ok) throw new Error('Download failed');
-  const stream = fs.createWriteStream(tempPath, { highWaterMark: 2 * 1024 * 1024 }); // 2MB বাফার
+  const stream = fs.createWriteStream(tempPath, { highWaterMark: 4 * 1024 * 1024 }); // 4MB বাফার
   await pipeline(Readable.fromWeb(res.body), stream);
   return tempPath;
 }
 
-// মূল হ্যান্ডলার ফাংশন
+// টেলিগ্রাম মেসেজ হ্যান্ডলার
 async function handleFacebookDownload(client, chatId, text) {
   const fbRegex = /(https?:\/\/(?:www\.|m\.|web\.)?(?:facebook\.com|fb\.watch|fb\.com)\/[^\s]+)/i;
   const match = text.match(fbRegex);
@@ -363,7 +388,7 @@ async function handleFacebookDownload(client, chatId, text) {
 
   const rawUrl = match[0];
   const statusMsg = await client.sendMessage(chatId, {
-    message: '⚡ **আল্ট্রা-ফাস্ট প্রসেসিং চালু...**\nতারিখ, মেটাডাটা ও অডিওসহ প্রস্তুত করা হচ্ছে 🚀',
+    message: '⚡ **আল্ট্রা-ফাস্ট প্রসেসিং চালু...**\nবিবরণ ও অডিওসহ ভিডিও প্রস্তুত হচ্ছে 🚀',
     parseMode: 'md',
   });
 
@@ -384,12 +409,12 @@ async function handleFacebookDownload(client, chatId, text) {
 
     const caption = buildCaption(videoData);
 
-    // 🚀 workers: 4 দিয়ে ৪টি প্যারালাল থ্রেডে সুপার আল্ট্রা-ফাস্ট আপলোড
+    // 🚀 workers: 8 দিয়ে সর্বোচ্চ গতিতে প্যারালাল আপলোড
     await client.sendFile(chatId, {
       file: localPath,
       caption: caption,
       parseMode: 'md',
-      workers: 4, // বড় ভিডিও ৪ গুণ দ্রুত আপলোড করবে
+      workers: 8, // সর্বোচ্চ ৮টি প্যারালাল স্ট্রিম (১০ মিনিটের বড় ভিডিও সুপারফাস্ট আপলোড হবে)
       supportsStreaming: true,
     });
 
