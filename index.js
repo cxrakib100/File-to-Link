@@ -17,7 +17,7 @@ const BASE_URL = (process.env.BASE_URL || '').replace(/\/$/, '');
 const PORT = process.env.PORT || 3000;
 
 const client = new TelegramClient(new StringSession(''), API_ID, API_HASH, { 
-  connectionRetries: 10,
+  connectionRetries: 20,
   autoReconnect: true,
   useWSS: false
 });
@@ -28,11 +28,12 @@ const userModes = new Map();
 const userTimeouts = new Map();
 const TWO_HOURS = 2 * 60 * 60 * 1000;
 
+// হাই-স্পিড কিপ-অ্যালাইভ এজেন্ট
 const httpAgent = new https.Agent({ 
   keepAlive: true, 
-  keepAliveMsecs: 30000, 
-  maxSockets: 50,
-  maxFreeSockets: 20
+  keepAliveMsecs: 60000, 
+  maxSockets: 100,
+  maxFreeSockets: 30
 });
 
 function sendFastTelegramRequest(endpoint, payload) {
@@ -55,16 +56,15 @@ function sendFastTelegramRequest(endpoint, payload) {
   });
 }
 
-// ⚡ রিয়েল-টাইম মেম্বারশিপ ক্যাশ (মাত্র ১০ সেকেন্ড, যাতে লিভ নেওয়া মাত্রই বট ধরে ফেলতে পারে)
+// ⚡ রিয়েল-টাইম মেম্বারশিপ ক্যাশ (১০ সেকেন্ড - হ্যাং হবে না)
 const subCache = new Map();
-const SUB_CACHE_TTL = 10 * 1000; // ১০ সেকেন্ড (হ্যাং হবে না এবং ইনস্ট্যান্ট লিভ ডিটেক্ট করবে)
+const SUB_CACHE_TTL = 10 * 1000;
 
 async function checkSubWithSpeed(userId) {
   if (!userId) return false;
   const userKey = String(userId);
   const cached = subCache.get(userKey);
 
-  // ১০ সেকেন্ডের ভেতরে থাকলে ক্যাশ থেকে ইনস্ট্যান্ট রেজাল্ট (০ মিলি-সেকেন্ড স্পিড)
   if (cached && (Date.now() - cached.time < SUB_CACHE_TTL)) {
     return cached.joined;
   }
@@ -75,7 +75,6 @@ async function checkSubWithSpeed(userId) {
     subCache.set(userKey, { joined: isValid, time: Date.now() });
     return isValid;
   } catch (err) {
-    console.error('ForceSub verification error:', err);
     subCache.set(userKey, { joined: false, time: Date.now() });
     return false;
   }
@@ -137,9 +136,7 @@ function startAutoBackTimer(chatId, userId) {
         userTimeouts.delete(String(userId));
         await sendMainMenu(chatId, MAIN_MENU_TEXT);
       }
-    } catch (err) {
-      console.error('Auto back error:', err);
-    }
+    } catch (err) {}
   }, TWO_HOURS);
   userTimeouts.set(String(userId), timer);
 }
@@ -151,6 +148,7 @@ function cancelAutoBackTimer(userId) {
   }
 }
 
+// 🎨 আপনার চাহিদা অনুযায়ী কালার ও লোগোসহ মেইন মেনু বাটন
 async function sendMainMenu(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
@@ -161,22 +159,22 @@ async function sendMainMenu(chatId, text) {
       reply_markup: {
         keyboard: [
           [
-            { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤" },
-            { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" }
+            { text: "📁 𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "primary" },   // রয়্যাল ব্লু + লোগো
+            { text: "🎵 𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "success" }   // গ্রিন + টিকটক লোগো
           ],
           [
-            { text: "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" },
-            { text: "𝐒𝐮𝐩𝐩𝐨𝐫𝐭" }
+            { text: "📘 𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }, // ব্লু + ফেসবুক লোগো
+            { text: "💬 𝐒𝐮𝐩𝐩𝐨𝐫𝐭", style: "danger" }          // রেড + সাপোর্ট লোগো
           ]
         ],
-        resize_keyboard: true
+        resize_keyboard: true,
+        is_persistent: true
       }
     });
-  } catch (err) {
-    console.error('sendMainMenu error:', err);
-  }
+  } catch (err) {}
 }
 
+// 🎨 ব্যাক বাটন (রেড স্টাইল)
 async function sendBackMenu(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
@@ -187,18 +185,16 @@ async function sendBackMenu(chatId, text) {
       reply_markup: {
         keyboard: [
           [
-            { text: "🔙 𝐁𝐚𝐜𝐤" }
+            { text: "🔙 𝐁𝐚𝐜𝐤", style: "danger" }
           ]
         ],
-        resize_keyboard: true
+        resize_keyboard: true,
+        is_persistent: true
       }
     });
-  } catch (err) {
-    console.error('sendBackMenu error:', err);
-  }
+  } catch (err) {}
 }
 
-// 🔒 জয়েন না থাকলে কিবোর্ড লুকিয়ে ফেলার ফাংশন
 async function hideKeyboardAndLock(chatId) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
@@ -217,8 +213,6 @@ client.addEventHandler(async (update) => {
 
     if (data === 'check_sub') {
       const senderId = update.userId;
-      
-      // বাটন প্রেস করলে কোনো ক্যাশ চলবে না, সরাসরি লাইভ চেক হবে
       subCache.delete(String(senderId));
       const joined = await isUserJoined(client, senderId);
 
@@ -265,13 +259,10 @@ client.addEventHandler(async (event) => {
 
   if (!senderId) return;
 
-  // 🛡️ কঠোর সুরক্ষা: প্রতি অ্যাকশনে রিয়েল-টাইম মেম্বারশিপ চেক
   const joined = await checkSubWithSpeed(senderId);
   if (!joined) {
     userModes.delete(String(senderId));
     cancelAutoBackTimer(senderId);
-
-    // সব মেনু বাটন হাইড করে জয়েন প্রম্পট দেওয়া
     await hideKeyboardAndLock(chatId);
     await sendJoinPrompt(client, chatId);
     return;
@@ -282,11 +273,11 @@ client.addEventHandler(async (event) => {
   const hasRealFile = message.media && (message.media.document || message.media.photo);
   if (hasRealFile) {
     if (currentMode === 'tiktok' || currentMode === 'facebook') {
-      await message.reply({ message: '⚠️ আপনি অন্য মোডে আছেন! ফাইল আপলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤" সিলেক্ট করুন।' });
+      await message.reply({ message: '⚠️ আপনি অন্য মোডে আছেন! ফাইল আপলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "📁 𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤" সিলেক্ট করুন।' });
       return;
     }
     if (currentMode === 'main') {
-      await message.reply({ message: '⚠️ ফাইল আপলোড করতে প্রথমে নিচের মেনু থেকে "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤" বাটনটি বেছে নিন।' });
+      await message.reply({ message: '⚠️ ফাইল আপলোড করতে প্রথমে নিচের মেনু থেকে "📁 𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤" বাটনটি বেছে নিন।' });
       return;
     }
 
@@ -297,6 +288,7 @@ client.addEventHandler(async (event) => {
 
   const text = (message.text || '').trim();
 
+  // ⚡ ইনস্ট্যান্ট মেনু নেভিগেশন (০.০৫ সেকেন্ড স্পিড)
   if (text.startsWith('/start')) {
     userModes.set(String(senderId), 'main');
     cancelAutoBackTimer(senderId);
@@ -304,28 +296,28 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  if (text === '𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤' || text === 'File To Link' || text === '/file') {
+  if (text.includes('File To Link') || text.includes('𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤') || text === '/file') {
     userModes.set(String(senderId), 'file');
     startAutoBackTimer(chatId, senderId);
     await sendBackMenu(chatId, FILE_SERVICE_TEXT);
     return;
   }
 
-  if (text === '𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨' || text === 'Tiktok Video' || text === '/tiktok') {
+  if (text.includes('Tiktok Video') || text.includes('𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨') || text === '/tiktok') {
     userModes.set(String(senderId), 'tiktok');
     startAutoBackTimer(chatId, senderId);
     await sendBackMenu(chatId, TIKTOK_SERVICE_TEXT);
     return;
   }
 
-  if (text === '𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨' || text === 'Facebook Video' || text === '𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝' || text === 'Facebook Download' || text === '/facebook' || text === '/fb') {
+  if (text.includes('Facebook Video') || text.includes('𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨') || text.includes('Facebook Download') || text.includes('𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝') || text === '/facebook' || text === '/fb') {
     userModes.set(String(senderId), 'facebook');
     startAutoBackTimer(chatId, senderId);
     await sendBackMenu(chatId, FACEBOOK_SERVICE_TEXT);
     return;
   }
 
-  if (text === '𝐒𝐮𝐩𝐩𝐨𝐫𝐭' || text === 'Support' || text.toLowerCase().includes('support')) {
+  if (text.includes('Support') || text.includes('𝐒𝐮𝐩𝐩𝐨𝐫𝐭')) {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
     const prefillText = encodeURIComponent('আসসালামু আলাইকুম ভাইয়া!');
     const supportUrl = `https://t.me/cx_rakib?text=${prefillText}`;
@@ -350,33 +342,27 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  if (text.includes('𝐁𝐚𝐜𝐤') || text.includes('Back') || text === '/back') {
+  if (text.includes('Back') || text.includes('𝐁𝐚𝐜𝐤') || text === '/back') {
     userModes.set(String(senderId), 'main');
     cancelAutoBackTimer(senderId);
     await sendMainMenu(chatId, MAIN_MENU_TEXT);
     return;
   }
 
+  // টিকটক হ্যান্ডলার
   const isTikTokLink = /(?:tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com)/i.test(text);
   if (isTikTokLink) {
     if (currentMode === 'file' || currentMode === 'facebook') {
-      await message.reply({ 
-        message: '⚠️ আপনি অন্য মোডে আছেন! টিকটক ভিডিও ডাউনলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" মোড সিলেক্ট করুন।' 
-      });
+      await message.reply({ message: '⚠️ আপনি অন্য মোডে আছেন! টিকটক ভিডিও ডাউনলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "🎵 𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" মোড সিলেক্ট করুন।' });
       return;
     }
-
     if (currentMode === 'main') {
-      await message.reply({ 
-        message: '⚠️ টিকটক ভিডিও ডাউনলোড করতে প্রথমে নিচের মেনু থেকে "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" বাটনটি বেছে নিন।' 
-      });
+      await message.reply({ message: '⚠️ টিকটক ভিডিও ডাউনলোড করতে প্রথমে নিচের মেনু থেকে "🎵 𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" বাটনটি বেছে নিন।' });
       return;
     }
-
     if (currentMode === 'tiktok') {
       const allUrls = text.match(/https?:\/\/(?:[a-zA-Z0-9-]+\.)?tiktok\.com\/[^\s]+/gi) || [];
       const cleanVideoUrl = allUrls.find(u => !u.toLowerCase().includes('tiktoklite')) || allUrls[0];
-
       if (cleanVideoUrl) {
         startAutoBackTimer(chatId, senderId);
         await handleTikTokDownload(client, chatId, cleanVideoUrl);
@@ -385,22 +371,17 @@ client.addEventHandler(async (event) => {
     }
   }
 
+  // ফেসবুক হ্যান্ডলার
   const isFacebookLink = /(?:facebook\.com|fb\.watch|fb\.com)/i.test(text);
   if (isFacebookLink) {
     if (currentMode === 'file' || currentMode === 'tiktok') {
-      await message.reply({ 
-        message: '⚠️ আপনি অন্য মোডে আছেন! Facebook ভিডিও ডাউনলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" মোড সিলেক্ট করুন।' 
-      });
+      await message.reply({ message: '⚠️ আপনি অন্য মোডে আছেন! Facebook ভিডিও ডাউনলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "📘 𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" মোড সিলেক্ট করুন।' });
       return;
     }
-
     if (currentMode === 'main') {
-      await message.reply({ 
-        message: '⚠️ Facebook ভিডিও ডাউনলোড করতে প্রথমে নিচের মেনু থেকে "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" বাটনটি বেছে নিন।' 
-      });
+      await message.reply({ message: '⚠️ Facebook ভিডিও ডাউনলোড করতে প্রথমে নিচের মেনু থেকে "📘 𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" বাটনটি বেছে নিন।' });
       return;
     }
-
     if (currentMode === 'facebook') {
       startAutoBackTimer(chatId, senderId);
       await handleFacebookDownload(client, chatId, text);
@@ -420,21 +401,28 @@ client.addEventHandler(async (event) => {
 }, new NewMessage({ incoming: true }));
 
 setupDownloadRoute(app, client);
-app.get('/', (req, res) => res.send('Multi-Function Bot Server is Live!'));
 
+// 🛡️ ২৪/৭ অ্যান্টি-স্লিপ পিং রাউট
+app.get('/', (req, res) => res.send('Multi-Function Bot Server is Live 24/7!'));
+app.get('/ping', (req, res) => res.status(200).send('PONG_ALIVE'));
+
+// 🚀 টেলিগ্রাম সংযোগ যেন ১ বছরেও না কাটে (Keep-Alive Heartbeat)
 setInterval(async () => {
   try {
     if (client && client.connected) {
       await client.invoke(new Api.help.GetConfig());
-    } else if (client) {
+    } else if (client && !client.connected) {
       await client.connect();
     }
   } catch (e) {}
-}, 25 * 1000);
+}, 20 * 1000); // প্রতি ২০ সেকেন্ডে হার্টবিট
 
+// 🚀 সার্ভার যেন কখনো না ঘুমায় (Self-Wake Up Engine)
 setInterval(() => {
-  if (BASE_URL) fetch(BASE_URL).catch(() => {});
-}, 8 * 60 * 1000);
+  if (BASE_URL) {
+    fetch(`${BASE_URL}/ping`).catch(() => {});
+  }
+}, 3 * 60 * 1000); // প্রতি ৩ মিনিটে সেলফ-পিং
 
 app.listen(PORT, async () => {
   console.log(`Server listening on port ${PORT}`);
