@@ -6,7 +6,6 @@ const { StringSession } = require('telegram/sessions');
 const { NewMessage } = require('telegram/events');
 const { Button } = require('telegram/tl/custom/button');
 
-// Modules
 const { isUserJoined, sendJoinPrompt } = require('./forceSub');
 const { processFileUpload, setupDownloadRoute } = require('./fileHandler');
 const { handleTikTokDownload } = require('./tiktokHandler');
@@ -103,7 +102,7 @@ const TIKTOK_SERVICE_TEXT =
 ━━━━━━━━━━━━━━━━━━━━━━`;
 
 const FACEBOOK_SERVICE_TEXT = 
-`📘 𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝
+`📘 𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨
 ━━━━━━━━━━━━━━━━━━━━━━
 📥 Facebook ভিডিওর 🔗 লিংকটি পাঠান।
 
@@ -154,7 +153,7 @@ async function sendMainMenu(chatId, text) {
             { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }
           ],
           [
-            { text: "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝", style: "primary" },
+            { text: "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" },
             { text: "𝐒𝐮𝐩𝐩𝐨𝐫𝐭", style: "danger" }
           ]
         ],
@@ -282,7 +281,7 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  if (text === '𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝' || text === 'Facebook Download' || text === '𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨' || text === '/facebook' || text === '/fb') {
+  if (text === '𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨' || text === 'Facebook Video' || text === '𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝' || text === 'Facebook Download' || text === '/facebook' || text === '/fb') {
     userModes.set(String(senderId), 'facebook');
     startAutoBackTimer(chatId, senderId);
     await sendBackMenu(chatId, FACEBOOK_SERVICE_TEXT);
@@ -353,14 +352,14 @@ client.addEventHandler(async (event) => {
   if (isFacebookLink) {
     if (currentMode === 'file' || currentMode === 'tiktok') {
       await message.reply({ 
-        message: '⚠️ আপনি অন্য মোডে আছেন! Facebook ভিডিও ডাউনলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝" মোড সিলেক্ট করুন।' 
+        message: '⚠️ আপনি অন্য মোডে আছেন! Facebook ভিডিও ডাউনলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" মোড সিলেক্ট করুন।' 
       });
       return;
     }
 
     if (currentMode === 'main') {
       await message.reply({ 
-        message: '⚠️ Facebook ভিডিও ডাউনলোড করতে প্রথমে নিচের মেনু থেকে "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝" বাটনটি বেছে নিন।' 
+        message: '⚠️ Facebook ভিডিও ডাউনলোড করতে প্রথমে নিচের মেনু থেকে "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" বাটনটি বেছে নিন।' 
       });
       return;
     }

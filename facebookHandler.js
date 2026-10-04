@@ -5,6 +5,28 @@ const { Readable } = require('stream');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 
+async function getFromFdown(fbUrl) {
+  try {
+    const res = await fetch('https://fdown.isuru.eu.org/info', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: fbUrl, quality: 'best' }),
+      signal: AbortSignal.timeout(15000)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const videoUrl = data?.download_url || data?.url || (data?.available_formats && data.available_formats[0]?.url);
+      if (videoUrl && videoUrl.startsWith('http')) {
+        return {
+          url: videoUrl,
+          title: data?.video_info?.title || data?.title || 'Facebook Video'
+        };
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
 async function getFromMediaSaver(fbUrl) {
   try {
     const apiUrl = 'https://mediasaver.link/api/?url=' + encodeURIComponent(fbUrl);
@@ -12,15 +34,13 @@ async function getFromMediaSaver(fbUrl) {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
       signal: AbortSignal.timeout(10000)
     });
-
     if (res.ok) {
       const data = await res.json();
       const videoUrl = data?.video || data?.links?.hd || data?.links?.sd || data?.url || data?.download || data?.data?.video;
       if (videoUrl && typeof videoUrl === 'string' && videoUrl.startsWith('http')) {
         return {
           url: videoUrl,
-          title: data.title || data?.data?.title || 'Facebook Video',
-          author: data.author || 'Facebook User'
+          title: data.title || data?.data?.title || 'Facebook Video'
         };
       }
     }
@@ -28,59 +48,22 @@ async function getFromMediaSaver(fbUrl) {
   return null;
 }
 
-async function getFromAlternative(fbUrl) {
+async function getFromFbDown(fbUrl) {
   try {
     const apiUrl = 'https://api.fbdown.xyz/api?url=' + encodeURIComponent(fbUrl);
     const res = await fetch(apiUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0' },
       signal: AbortSignal.timeout(8000)
     });
-
     if (res.ok) {
       const data = await res.json();
       const videoUrl = data?.hd || data?.sd || data?.url || data?.download_url || (data?.links && data.links[0]?.url);
       if (videoUrl && videoUrl.startsWith('http')) {
         return {
           url: videoUrl,
-          title: data.title || 'Facebook Video',
-          author: data.author || 'Facebook User'
+          title: data.title || 'Facebook Video'
         };
       }
-    }
-  } catch (e) {}
-  return null;
-}
-
-async function getFromPageScrape(fbUrl) {
-  try {
-    const res = await fetch(fbUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html'
-      },
-      signal: AbortSignal.timeout(8000),
-      redirect: 'follow'
-    });
-
-    if (!res.ok) return null;
-    const html = await res.text();
-
-    const hdMatch = html.match(/"playable_url_quality_hd":"([^"]+)"/) || html.match(/hd_src:"([^"]+)"/);
-    const sdMatch = html.match(/"playable_url":"([^"]+)"/) || html.match(/sd_src:"([^"]+)"/);
-
-    let videoUrl = null;
-    if (hdMatch && hdMatch[1]) {
-      videoUrl = hdMatch[1].replace(/\\u0025/g, '%').replace(/\\/g, '');
-    } else if (sdMatch && sdMatch[1]) {
-      videoUrl = sdMatch[1].replace(/\\u0025/g, '%').replace(/\\/g, '');
-    }
-
-    if (videoUrl && videoUrl.startsWith('http')) {
-      return {
-        url: videoUrl,
-        title: 'Facebook Video',
-        author: 'Facebook User'
-      };
     }
   } catch (e) {}
   return null;
@@ -100,14 +83,14 @@ async function handleFacebookDownload(client, chatId, text) {
   });
 
   try {
-    let videoData = await getFromMediaSaver(fbUrl);
+    let videoData = await getFromFdown(fbUrl);
 
     if (!videoData || !videoData.url) {
-      videoData = await getFromAlternative(fbUrl);
+      videoData = await getFromMediaSaver(fbUrl);
     }
 
     if (!videoData || !videoData.url) {
-      videoData = await getFromPageScrape(fbUrl);
+      videoData = await getFromFbDown(fbUrl);
     }
 
     if (!videoData || !videoData.url) {
@@ -117,7 +100,7 @@ async function handleFacebookDownload(client, chatId, text) {
     const title = videoData.title || 'Facebook Video';
     const captionText = '🎬 **' + title + '**\n\n👤 **সোর্স:** Facebook\n✨ **কোয়ালিটি:** Best Available';
 
-    // Telegram-এ সরাসরি পাঠানোর চেষ্টা
+    // Telegram-এ সরাসরি পাঠানোর চেষ্টা (সবচেয়ে ফাস্ট)
     const tgRes = await fetch('https://api.telegram.org/bot' + BOT_TOKEN + '/sendVideo', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -128,7 +111,7 @@ async function handleFacebookDownload(client, chatId, text) {
         parse_mode: 'Markdown',
         supports_streaming: true
       }),
-      signal: AbortSignal.timeout(20000)
+      signal: AbortSignal.timeout(25000)
     });
 
     const tgData = await tgRes.json();
@@ -142,7 +125,7 @@ async function handleFacebookDownload(client, chatId, text) {
     const tempFilePath = path.join('/tmp', 'fb_' + Date.now() + '.mp4');
     const videoRes = await fetch(videoData.url, {
       headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(30000)
+      signal: AbortSignal.timeout(40000)
     });
 
     if (!videoRes.ok) throw new Error('ভিডিও ফাইল ডাউনলোড ফেইল হয়েছে');
