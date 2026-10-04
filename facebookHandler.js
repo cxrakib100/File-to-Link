@@ -5,14 +5,81 @@ const { Readable } = require('stream');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 
-// ========== Fast Facebook Engines ==========
+// ========== Facebook Engines (prefer links that usually have audio) ==========
 
-async function engine1_fdown(fbUrl) {
+async function engine1_fdownnet(fbUrl) {
+  try {
+    const res = await fetch('https://fdown.net/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Origin': 'https://fdown.net',
+        'Referer': 'https://fdown.net/'
+      },
+      body: 'URLz=' + encodeURIComponent(fbUrl),
+      signal: AbortSignal.timeout(9000)
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+
+    // SD first (usually has audio muxed), then HD
+    const sdMatch = html.match(/href=["'](https?:\/\/[^"']+)["'][^>]*>\s*Download in SD/i)
+      || html.match(/sdlink[^>]*href=["'](https?:\/\/[^"']+)/i)
+      || html.match(/href=["'](https?:\/\/[^"']*sd[^"']*)["']/i);
+    const hdMatch = html.match(/href=["'](https?:\/\/[^"']+)["'][^>]*>\s*Download in HD/i)
+      || html.match(/hdlink[^>]*href=["'](https?:\/\/[^"']+)/i);
+
+    const sdUrl = sdMatch && sdMatch[1] ? sdMatch[1].replace(/&amp;/g, '&') : null;
+    const hdUrl = hdMatch && hdMatch[1] ? hdMatch[1].replace(/&amp;/g, '&') : null;
+
+    // Prefer SD for audio
+    const videoUrl = sdUrl || hdUrl;
+    if (videoUrl && videoUrl.startsWith('http')) {
+      return {
+        url: videoUrl,
+        title: null,
+        quality: sdUrl ? 'SD' : 'HD',
+        hasAudioPriority: !!sdUrl
+      };
+    }
+  } catch (e) {}
+  return null;
+}
+
+async function engine2_fbdownxyz(fbUrl) {
+  try {
+    const res = await fetch('https://api.fbdown.xyz/api?url=' + encodeURIComponent(fbUrl), {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(8000)
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    // Prefer SD (audio more reliable)
+    const videoUrl = data?.sd || data?.hd || data?.url || data?.download_url || (data?.links && data.links[0]?.url);
+    if (videoUrl && videoUrl.startsWith('http')) {
+      return {
+        url: videoUrl,
+        title: cleanTitle(data.title),
+        description: data?.description || null,
+        author: data?.author || null,
+        views: data?.views || data?.view_count || null,
+        reactions: data?.likes || data?.reactions || data?.like_count || null,
+        comments: data?.comments || data?.comment_count || null,
+        quality: data?.sd && !data?.hd ? 'SD' : (data?.hd ? 'HD' : 'SD'),
+        hasAudioPriority: !!data?.sd
+      };
+    }
+  } catch (e) {}
+  return null;
+}
+
+async function engine3_fdown(fbUrl) {
   try {
     const res = await fetch('https://fdown.isuru.eu.org/info', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: fbUrl, quality: 'best' }),
+      body: JSON.stringify({ url: fbUrl, quality: 'worst' }),
       signal: AbortSignal.timeout(8000)
     });
     if (!res.ok) return null;
@@ -25,16 +92,17 @@ async function engine1_fdown(fbUrl) {
         description: data?.video_info?.description || data?.description || null,
         author: data?.video_info?.uploader || data?.author || null,
         views: data?.video_info?.view_count || data?.views || null,
-        reactions: data?.reactions || data?.like_count || data?.likes || data?.video_info?.like_count || null,
-        comments: data?.comments || data?.comment_count || data?.video_info?.comment_count || null,
-        quality: 'HD'
+        reactions: data?.reactions || data?.like_count || data?.likes || null,
+        comments: data?.comments || data?.comment_count || null,
+        quality: 'SD',
+        hasAudioPriority: true
       };
     }
   } catch (e) {}
   return null;
 }
 
-async function engine2_mediasaver(fbUrl) {
+async function engine4_mediasaver(fbUrl) {
   try {
     const res = await fetch('https://mediasaver.link/api/?url=' + encodeURIComponent(fbUrl), {
       headers: { 'User-Agent': 'Mozilla/5.0' },
@@ -42,49 +110,26 @@ async function engine2_mediasaver(fbUrl) {
     });
     if (!res.ok) return null;
     const data = await res.json();
-    const videoUrl = data?.video || data?.links?.hd || data?.links?.sd || data?.url || data?.download || data?.data?.video;
+    // Prefer SD link if available
+    const videoUrl = data?.links?.sd || data?.video || data?.links?.hd || data?.url || data?.download || data?.data?.video;
     if (videoUrl && typeof videoUrl === 'string' && videoUrl.startsWith('http')) {
       return {
         url: videoUrl,
         title: cleanTitle(data.title || data?.data?.title),
         description: data?.description || data?.data?.description || null,
         author: data?.author || data?.data?.author || null,
-        views: data?.views || data?.view_count || data?.data?.views || null,
-        reactions: data?.likes || data?.reactions || data?.like_count || data?.data?.likes || null,
-        comments: data?.comments || data?.data?.comments || null,
-        quality: data?.links?.hd ? 'HD' : 'SD'
-      };
-    }
-  } catch (e) {}
-  return null;
-}
-
-async function engine3_fbdownxyz(fbUrl) {
-  try {
-    const res = await fetch('https://api.fbdown.xyz/api?url=' + encodeURIComponent(fbUrl), {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(7000)
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const videoUrl = data?.sd || data?.hd || data?.url || data?.download_url || (data?.links && data.links[0]?.url);
-    if (videoUrl && videoUrl.startsWith('http')) {
-      return {
-        url: videoUrl,
-        title: cleanTitle(data.title),
-        description: data?.description || null,
-        author: data?.author || null,
         views: data?.views || data?.view_count || null,
         reactions: data?.likes || data?.reactions || data?.like_count || null,
-        comments: data?.comments || data?.comment_count || null,
-        quality: data?.hd ? 'HD' : 'SD'
+        comments: data?.comments || null,
+        quality: data?.links?.sd ? 'SD' : 'HD',
+        hasAudioPriority: !!data?.links?.sd
       };
     }
   } catch (e) {}
   return null;
 }
 
-async function engine4_xcasper(fbUrl) {
+async function engine5_xcasper(fbUrl) {
   try {
     const res = await fetch('https://apis.xcasper.space/api/downloader/fb', {
       method: 'POST',
@@ -94,7 +139,7 @@ async function engine4_xcasper(fbUrl) {
     });
     if (!res.ok) return null;
     const data = await res.json();
-    const videoUrl = data?.url || data?.download || data?.hd || data?.sd || data?.result?.url || data?.data?.url;
+    const videoUrl = data?.sd || data?.url || data?.download || data?.hd || data?.result?.url || data?.data?.url;
     if (videoUrl && videoUrl.startsWith('http')) {
       return {
         url: videoUrl,
@@ -103,15 +148,16 @@ async function engine4_xcasper(fbUrl) {
         author: data?.author || data?.uploader || null,
         views: data?.views || data?.view_count || null,
         reactions: data?.reactions || data?.likes || data?.like_count || null,
-        comments: data?.comments || data?.comment_count || null,
-        quality: 'HD'
+        comments: data?.comments || null,
+        quality: data?.sd ? 'SD' : 'HD',
+        hasAudioPriority: !!data?.sd
       };
     }
   } catch (e) {}
   return null;
 }
 
-async function engine5_snapsave(fbUrl) {
+async function engine6_snapsave(fbUrl) {
   try {
     const res = await fetch('https://snapsave.app/action.php', {
       method: 'POST',
@@ -130,37 +176,8 @@ async function engine5_snapsave(fbUrl) {
     if (match) {
       const videoUrl = (match[1] || match[0]).replace(/\\/g, '');
       if (videoUrl.startsWith('http')) {
-        return { url: videoUrl, title: null, quality: 'HD' };
+        return { url: videoUrl, title: null, quality: 'HD', hasAudioPriority: false };
       }
-    }
-  } catch (e) {}
-  return null;
-}
-
-async function engine6_fdownnet(fbUrl) {
-  try {
-    const res = await fetch('https://fdown.net/', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Origin': 'https://fdown.net',
-        'Referer': 'https://fdown.net/'
-      },
-      body: 'URLz=' + encodeURIComponent(fbUrl),
-      signal: AbortSignal.timeout(8000)
-    });
-    if (!res.ok) return null;
-    const html = await res.text();
-    const sdMatch = html.match(/href="(https?:\/\/[^\"]+?)"[^>]*>\s*Download in SD/i) || html.match(/sdlink"[^>]*href="(https?:\/\/[^"]+)/i);
-    const hdMatch = html.match(/href="(https?:\/\/[^\"]+?)"[^>]*>\s*Download in HD/i) || html.match(/hdlink"[^>]*href="(https?:\/\/[^"]+)/i);
-    const videoUrl = (sdMatch && sdMatch[1]) || (hdMatch && hdMatch[1]);
-    if (videoUrl && videoUrl.startsWith('http')) {
-      return {
-        url: videoUrl.replace(/&amp;/g, '&'),
-        title: null,
-        quality: sdMatch ? 'SD' : 'HD'
-      };
     }
   } catch (e) {}
   return null;
@@ -184,15 +201,14 @@ function formatNumber(num) {
   return String(Math.floor(n));
 }
 
-// Merge best data from ALL engines
 async function getBestFacebookVideo(fbUrl) {
   const engines = [
-    engine1_fdown,
-    engine2_mediasaver,
-    engine3_fbdownxyz,
-    engine4_xcasper,
-    engine5_snapsave,
-    engine6_fdownnet
+    engine1_fdownnet,
+    engine2_fbdownxyz,
+    engine3_fdown,
+    engine4_mediasaver,
+    engine5_xcasper,
+    engine6_snapsave
   ];
 
   const results = await Promise.allSettled(engines.map(fn => fn(fbUrl)));
@@ -205,24 +221,32 @@ async function getBestFacebookVideo(fbUrl) {
     views: null,
     reactions: null,
     comments: null,
-    quality: 'HD'
+    quality: 'HD',
+    hasAudioPriority: false
   };
 
+  // First pass: prefer any result that has audio priority (SD)
   for (const r of results) {
-    if (r.status !== 'fulfilled' || !r.value) continue;
+    if (r.status !== 'fulfilled' || !r.value || !r.value.url) continue;
     const v = r.value;
 
-    // Take first valid URL
-    if (!best.url && v.url) best.url = v.url;
+    if (v.hasAudioPriority && !best.hasAudioPriority) {
+      best.url = v.url;
+      best.quality = v.quality || 'SD';
+      best.hasAudioPriority = true;
+    } else if (!best.url) {
+      best.url = v.url;
+      best.quality = v.quality || 'HD';
+      best.hasAudioPriority = !!v.hasAudioPriority;
+    }
 
-    // Merge metadata - keep the richest data
+    // Always merge metadata
     if (v.title && !best.title) best.title = v.title;
     if (v.description && !best.description) best.description = v.description;
     if (v.author && !best.author) best.author = v.author;
     if (v.views && !best.views) best.views = v.views;
     if (v.reactions && !best.reactions) best.reactions = v.reactions;
     if (v.comments && !best.comments) best.comments = v.comments;
-    if (v.quality === 'HD') best.quality = 'HD';
   }
 
   if (!best.url) return null;
@@ -232,11 +256,9 @@ async function getBestFacebookVideo(fbUrl) {
 function buildCaption(data) {
   const views = formatNumber(data.views);
   const reactions = formatNumber(data.reactions);
-  const comments = formatNumber(data.comments);
 
   let caption = '';
 
-  // ===== Top layer: Views + Reactions =====
   if (views || reactions) {
     const parts = [];
     if (views) parts.push(views + ' views');
@@ -244,11 +266,9 @@ function buildCaption(data) {
     caption += '📊 **' + parts.join(' · ') + '**\n\n';
   }
 
-  // ===== Title =====
   const title = data.title || 'Facebook Video';
   caption += '🎬 **' + title + '**\n\n';
 
-  // ===== Description (only if different) =====
   if (data.description) {
     let desc = data.description.trim();
     if (!(data.title && desc.toLowerCase().includes(data.title.toLowerCase().substring(0, 25)))) {
@@ -257,7 +277,6 @@ function buildCaption(data) {
     }
   }
 
-  // ===== Author =====
   if (data.author) {
     caption += '👤 **তৈরি করেছেন:** ' + data.author + '\n';
   }
@@ -295,7 +314,7 @@ async function handleFacebookDownload(client, chatId, text) {
 
     const captionText = buildCaption(videoData);
 
-    // Fast path
+    // Fast path - send video URL directly
     const tgRes = await fetch('https://api.telegram.org/bot' + BOT_TOKEN + '/sendVideo', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -306,7 +325,7 @@ async function handleFacebookDownload(client, chatId, text) {
         parse_mode: 'Markdown',
         supports_streaming: true
       }),
-      signal: AbortSignal.timeout(18000)
+      signal: AbortSignal.timeout(20000)
     });
 
     const tgData = await tgRes.json();
@@ -316,11 +335,11 @@ async function handleFacebookDownload(client, chatId, text) {
       return true;
     }
 
-    // Fallback
+    // Fallback: download then upload
     const tempFilePath = path.join('/tmp', 'fb_' + Date.now() + '.mp4');
     const videoRes = await fetch(videoData.url, {
       headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(35000)
+      signal: AbortSignal.timeout(40000)
     });
 
     if (!videoRes.ok) throw new Error('Download failed');
