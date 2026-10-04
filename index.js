@@ -10,6 +10,7 @@ const { Button } = require('telegram/tl/custom/button');
 const { isUserJoined, sendJoinPrompt } = require('./forceSub');
 const { processFileUpload, setupDownloadRoute } = require('./fileHandler');
 const { handleTikTokDownload } = require('./tiktokHandler');
+const { handleFacebookDownload } = require('./facebookHandler');
 
 const API_ID = Number(process.env.API_ID);
 const API_HASH = process.env.API_HASH;
@@ -105,6 +106,18 @@ const TIKTOK_SERVICE_TEXT =
 '🔙 𝐁𝐚𝐜𝐤 বাটন চাপুন।
 ━━━━━━━━━━━━━━━━━━━━━━`;
 
+const FACEBOOK_SERVICE_TEXT = 
+`📘 𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐞𝐫
+━━━━━━━━━━━━━━━━━━━━━━
+📥 Facebook ভিডিওর 🔗 লিংকটি পাঠান।
+
+✨ পাবলিক ভিডিও সাপোর্ট
+🎥 বেস্ট অ্যাভেইলেবল কোয়ালিটি
+
+ 🏠 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮-তে ফিরতে
+'🔙 𝐁𝐚𝐜𝐤 বাটন চাপুন।
+━━━━━━━━━━━━━━━━━━━━━━`;
+
 // ২ ঘণ্টার অটো-ব্যাক টাইমার
 function startAutoBackTimer(chatId, userId) {
   if (userTimeouts.has(String(userId))) {
@@ -113,7 +126,7 @@ function startAutoBackTimer(chatId, userId) {
   const timer = setTimeout(async () => {
     try {
       const currentMode = userModes.get(String(userId));
-      if (currentMode === 'file' || currentMode === 'tiktok') {
+      if (currentMode === 'file' || currentMode === 'tiktok' || currentMode === 'facebook') {
         userModes.set(String(userId), 'main');
         userTimeouts.delete(String(userId));
         await sendMainMenu(chatId, MAIN_MENU_TEXT);
@@ -147,6 +160,7 @@ async function sendMainMenu(chatId, text) {
             { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }
           ],
           [
+            { text: "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" },
             { text: "𝐒𝐮𝐩𝐩𝐨𝐫𝐭", style: "danger" }
           ]
         ],
@@ -247,8 +261,8 @@ client.addEventHandler(async (event) => {
   // ★ ১ নম্বর অগ্রাধিকার: ফাইল আসলে মোড অনুযায়ী চেক
   const hasRealFile = message.media && (message.media.document || message.media.photo);
   if (hasRealFile) {
-    if (currentMode === 'tiktok') {
-      await message.reply({ message: '⚠️ আপনি "টিকটক ভিডিও" মোডে আছেন! ফাইল আপলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤" সিলেক্ট করুন।' });
+    if (currentMode === 'tiktok' || currentMode === 'facebook') {
+      await message.reply({ message: '⚠️ আপনি অন্য মোডে আছেন! ফাইল আপলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤" সিলেক্ট করুন।' });
       return;
     }
     if (currentMode === 'main') {
@@ -285,6 +299,14 @@ client.addEventHandler(async (event) => {
     userModes.set(String(senderId), 'tiktok');
     startAutoBackTimer(chatId, senderId);
     await sendBackMenu(chatId, TIKTOK_SERVICE_TEXT);
+    return;
+  }
+
+  // বাটন: 𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨
+  if (text === '𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨' || text === 'Facebook Video' || text === '/facebook' || text === '/fb') {
+    userModes.set(String(senderId), 'facebook');
+    startAutoBackTimer(chatId, senderId);
+    await sendBackMenu(chatId, FACEBOOK_SERVICE_TEXT);
     return;
   }
 
@@ -325,9 +347,9 @@ client.addEventHandler(async (event) => {
   // ★ ৩ নম্বর অগ্রাধিকার: টিকটক লিংক আসলে কঠোর মোড যাচাই
   const isTikTokLink = /(?:tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com)/i.test(text);
   if (isTikTokLink) {
-    if (currentMode === 'file') {
+    if (currentMode === 'file' || currentMode === 'facebook') {
       await message.reply({ 
-        message: '⚠️ আপনি "ফাইল টু লিংক" মোডে আছেন! টিকটক ভিডিও ডাউনলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" মোড সিলেক্ট করুন।' 
+        message: '⚠️ আপনি অন্য মোডে আছেন! টিকটক ভিডিও ডাউনলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" মোড সিলেক্ট করুন।' 
       });
       return;
     }
@@ -351,13 +373,39 @@ client.addEventHandler(async (event) => {
     }
   }
 
+  // ★ Facebook লিংক চেক
+  const isFacebookLink = /(?:facebook\.com|fb\.watch|fb\.com)/i.test(text);
+  if (isFacebookLink) {
+    if (currentMode === 'file' || currentMode === 'tiktok') {
+      await message.reply({ 
+        message: '⚠️ আপনি অন্য মোডে আছেন! Facebook ভিডিও ডাউনলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" মোড সিলেক্ট করুন।' 
+      });
+      return;
+    }
+
+    if (currentMode === 'main') {
+      await message.reply({ 
+        message: '⚠️ Facebook ভিডিও ডাউনলোড করতে প্রথমে নিচের মেনু থেকে "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" বাটনটি বেছে নিন।' 
+      });
+      return;
+    }
+
+    if (currentMode === 'facebook') {
+      startAutoBackTimer(chatId, senderId);
+      await handleFacebookDownload(client, chatId, text);
+      return;
+    }
+  }
+
   // সাধারণ বা ভুল টেক্সট পাঠালে মোড অনুযায়ী নির্দেশনা
   if (currentMode === 'tiktok') {
     await message.reply({ message: '⚠️ অনুগ্রহ করে একটি সঠিক টিকটক ভিডিওর লিংক পাঠান (যেমন: https://vt.tiktok.com/...)' });
+  } else if (currentMode === 'facebook') {
+    await message.reply({ message: '⚠️ অনুগ্রহ করে একটি সঠিক Facebook ভিডিওর লিংক পাঠান (যেমন: https://www.facebook.com/... বা https://fb.watch/...)' });
   } else if (currentMode === 'file') {
     await message.reply({ message: '⚠️ আপনি "ফাইল টু লিংক" মোডে আছেন! অনুগ্রহ করে যেকোনো ফাইল, ভিডিও, APK বা ডকুমেন্ট সেন্ড করুন।' });
   } else {
-    await message.reply({ message: '💡 যেকোনো ফাইল সেন্ড করতে বা টিকটক ডাউনলোড করতে নিচের মেনু বাটন ব্যবহার করুন।' });
+    await message.reply({ message: '💡 যেকোনো ফাইল সেন্ড করতে বা ভিডিও ডাউনলোড করতে নিচের মেনু বাটন ব্যবহার করুন।' });
   }
 }, new NewMessage({ incoming: true }));
 
