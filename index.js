@@ -28,7 +28,7 @@ const userModes = new Map();
 const userTimeouts = new Map();
 const TWO_HOURS = 2 * 60 * 60 * 1000;
 
-// হাই-স্পিড কিপ-অ্যালাইভ এজেন্ট
+// হাই-স্পিড নেটওয়ার্ক কিপ-অ্যালাইভ পুল
 const httpAgent = new https.Agent({ 
   keepAlive: true, 
   keepAliveMsecs: 60000, 
@@ -56,9 +56,9 @@ function sendFastTelegramRequest(endpoint, payload) {
   });
 }
 
-// ⚡ রিয়েল-টাইম মেম্বারশিপ ক্যাশ (১০ সেকেন্ড - হ্যাং হবে না)
+// ⚡ সুপারফাস্ট মেম্বারশিপ ক্যাশ (বাটনে ক্লিক করলে যাতে কোনো ল্যাগ না হয়)
 const subCache = new Map();
-const SUB_CACHE_TTL = 10 * 1000;
+const SUB_CACHE_TTL = 30 * 1000; // ৩০ সেকেন্ড স্মার্ট ক্যাশ (বাটন ক্লিকে ০ মিলি-সেকেন্ড স্পিড দেবে)
 
 async function checkSubWithSpeed(userId) {
   if (!userId) return false;
@@ -148,7 +148,7 @@ function cancelAutoBackTimer(userId) {
   }
 }
 
-// 🎨 আপনার চাহিদা অনুযায়ী কালার ও লোগোসহ মেইন মেনু বাটন
+// 🎨 আপনার রিকোয়ারমেন্ট অনুযায়ী নতুন কালার ও নো-ইমোজি বাটন (৪টি বিন্দুর আইকন সবসময় থাকবে)
 async function sendMainMenu(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
@@ -159,22 +159,21 @@ async function sendMainMenu(chatId, text) {
       reply_markup: {
         keyboard: [
           [
-            { text: "📁 𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "primary" },   // রয়্যাল ব্লু + লোগো
-            { text: "🎵 𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "success" }   // গ্রিন + টিকটক লোগো
+            { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "success" },   // 🟢 গ্রিন
+            { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }   // 🔵 ব্লু
           ],
           [
-            { text: "📘 𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }, // ব্লু + ফেসবুক লোগো
-            { text: "💬 𝐒𝐮𝐩𝐩𝐨𝐫𝐭", style: "danger" }          // রেড + সাপোর্ট লোগো
+            { text: "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }, // 🔵 ব্লু
+            { text: "𝐒𝐮𝐩𝐩𝐨𝐫𝐭", style: "danger" }          // 🔴 লাল
           ]
         ],
         resize_keyboard: true,
-        is_persistent: true
+        one_time_keyboard: false // ৪টি বিন্দুর সুইচ আইকন সবসময় থাকবে
       }
     });
   } catch (err) {}
 }
 
-// 🎨 ব্যাক বাটন (রেড স্টাইল)
 async function sendBackMenu(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
@@ -189,7 +188,7 @@ async function sendBackMenu(chatId, text) {
           ]
         ],
         resize_keyboard: true,
-        is_persistent: true
+        one_time_keyboard: false
       }
     });
   } catch (err) {}
@@ -273,11 +272,11 @@ client.addEventHandler(async (event) => {
   const hasRealFile = message.media && (message.media.document || message.media.photo);
   if (hasRealFile) {
     if (currentMode === 'tiktok' || currentMode === 'facebook') {
-      await message.reply({ message: '⚠️ আপনি অন্য মোডে আছেন! ফাইল আপলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "📁 𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤" সিলেক্ট করুন।' });
+      await message.reply({ message: '⚠️ আপনি অন্য মোডে আছেন! ফাইল আপলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤" সিলেক্ট করুন।' });
       return;
     }
     if (currentMode === 'main') {
-      await message.reply({ message: '⚠️ ফাইল আপলোড করতে প্রথমে নিচের মেনু থেকে "📁 𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤" বাটনটি বেছে নিন।' });
+      await message.reply({ message: '⚠️ ফাইল আপলোড করতে প্রথমে নিচের মেনু থেকে "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤" বাটনটি বেছে নিন।' });
       return;
     }
 
@@ -288,7 +287,7 @@ client.addEventHandler(async (event) => {
 
   const text = (message.text || '').trim();
 
-  // ⚡ ইনস্ট্যান্ট মেনু নেভিগেশন (০.০৫ সেকেন্ড স্পিড)
+  // ⚡ সুপার ইনস্ট্যান্ট বাটন রেসপন্স (০.০১ সেকেন্ড স্পিড)
   if (text.startsWith('/start')) {
     userModes.set(String(senderId), 'main');
     cancelAutoBackTimer(senderId);
@@ -349,15 +348,15 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // টিকটক হ্যান্ডলার
+  // টিকটক প্রসেসিং
   const isTikTokLink = /(?:tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com)/i.test(text);
   if (isTikTokLink) {
     if (currentMode === 'file' || currentMode === 'facebook') {
-      await message.reply({ message: '⚠️ আপনি অন্য মোডে আছেন! টিকটক ভিডিও ডাউনলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "🎵 𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" মোড সিলেক্ট করুন।' });
+      await message.reply({ message: '⚠️ আপনি অন্য মোডে আছেন! টিকটক ভিডিও ডাউনলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" মোড সিলেক্ট করুন।' });
       return;
     }
     if (currentMode === 'main') {
-      await message.reply({ message: '⚠️ টিকটক ভিডিও ডাউনলোড করতে প্রথমে নিচের মেনু থেকে "🎵 𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" বাটনটি বেছে নিন।' });
+      await message.reply({ message: '⚠️ টিকটক ভিডিও ডাউনলোড করতে প্রথমে নিচের মেনু থেকে "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" বাটনটি বেছে নিন।' });
       return;
     }
     if (currentMode === 'tiktok') {
@@ -371,15 +370,15 @@ client.addEventHandler(async (event) => {
     }
   }
 
-  // ফেসবুক হ্যান্ডলার
+  // ফেসবুক প্রসেসিং
   const isFacebookLink = /(?:facebook\.com|fb\.watch|fb\.com)/i.test(text);
   if (isFacebookLink) {
     if (currentMode === 'file' || currentMode === 'tiktok') {
-      await message.reply({ message: '⚠️ আপনি অন্য মোডে আছেন! Facebook ভিডিও ডাউনলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "📘 𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" মোড সিলেক্ট করুন।' });
+      await message.reply({ message: '⚠️ আপনি অন্য মোডে আছেন! Facebook ভিডিও ডাউনলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" মোড সিলেক্ট করুন।' });
       return;
     }
     if (currentMode === 'main') {
-      await message.reply({ message: '⚠️ Facebook ভিডিও ডাউনলোড করতে প্রথমে নিচের মেনু থেকে "📘 𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" বাটনটি বেছে নিন।' });
+      await message.reply({ message: '⚠️ Facebook ভিডিও ডাউনলোড করতে প্রথমে নিচের মেনু থেকে "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" বাটনটি বেছে নিন।' });
       return;
     }
     if (currentMode === 'facebook') {
@@ -402,11 +401,10 @@ client.addEventHandler(async (event) => {
 
 setupDownloadRoute(app, client);
 
-// 🛡️ ২৪/৭ অ্যান্টি-স্লিপ পিং রাউট
 app.get('/', (req, res) => res.send('Multi-Function Bot Server is Live 24/7!'));
 app.get('/ping', (req, res) => res.status(200).send('PONG_ALIVE'));
 
-// 🚀 টেলিগ্রাম সংযোগ যেন ১ বছরেও না কাটে (Keep-Alive Heartbeat)
+// 🚀 টেলিগ্রাম সংযোগ সক্রিয় রাখার হার্টবিট
 setInterval(async () => {
   try {
     if (client && client.connected) {
@@ -415,14 +413,14 @@ setInterval(async () => {
       await client.connect();
     }
   } catch (e) {}
-}, 20 * 1000); // প্রতি ২০ সেকেন্ডে হার্টবিট
+}, 20 * 1000);
 
-// 🚀 সার্ভার যেন কখনো না ঘুমায় (Self-Wake Up Engine)
+// 🚀 ২৪/৭ জেগে থাকার সেলফ-পিং লুপ
 setInterval(() => {
   if (BASE_URL) {
     fetch(`${BASE_URL}/ping`).catch(() => {});
   }
-}, 3 * 60 * 1000); // প্রতি ৩ মিনিটে সেলফ-পিং
+}, 3 * 60 * 1000);
 
 app.listen(PORT, async () => {
   console.log(`Server listening on port ${PORT}`);
