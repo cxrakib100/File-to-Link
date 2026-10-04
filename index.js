@@ -107,7 +107,7 @@ const TIKTOK_SERVICE_TEXT =
 ━━━━━━━━━━━━━━━━━━━━━━`;
 
 const FACEBOOK_SERVICE_TEXT = 
-`📘 𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐞𝐫
+`📘 𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝
 ━━━━━━━━━━━━━━━━━━━━━━
 📥 Facebook ভিডিওর 🔗 লিংকটি পাঠান।
 
@@ -160,7 +160,7 @@ async function sendMainMenu(chatId, text) {
             { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }
           ],
           [
-            { text: "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" },
+            { text: "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝", style: "primary" },
             { text: "𝐒𝐮𝐩𝐩𝐨𝐫𝐭", style: "danger" }
           ]
         ],
@@ -195,7 +195,6 @@ async function sendBackMenu(chatId, text) {
 }
 
 // ১. ইনলাইন ভেরিফিকেশন
-// ১. ইনলাইন ভেরিফিকেশন (ভেরিফাই হলে মেসেজ উধাও হবে এবং তারপর মেইন মেনু আসবে)
 client.addEventHandler(async (update) => {
   if (update.className === 'UpdateBotCallbackQuery') {
     const data = update.data ? update.data.toString() : '';
@@ -207,7 +206,6 @@ client.addEventHandler(async (update) => {
       if (joined) {
         subCache.set(String(senderId), { joined: true, time: Date.now() });
 
-        // ১. স্ক্রিনে সফলতার পপ-আপ অ্যালার্ট
         await client.invoke(
           new Api.messages.SetBotCallbackAnswer({
             queryId: update.queryId,
@@ -216,20 +214,17 @@ client.addEventHandler(async (update) => {
           })
         );
 
-        // ২. চ্যানেলের জয়েন মেসেজটি সাথে সাথে স্ক্রিন থেকে চিরতরে উধাও (Delete) করে দিবে
         const cleanUserId = String(senderId).replace(/[^0-9-]/g, '');
         await sendFastTelegramRequest('deleteMessage', {
           chat_id: cleanUserId,
           message_id: update.msgId
         });
 
-        // ৩. মেসেজ উধাও হওয়ার পরই কেবল বটের মেইন ইন্টারফেস ও বাটন শো করবে
         userModes.set(String(senderId), 'main');
         cancelAutoBackTimer(senderId);
         await sendMainMenu(senderId, MAIN_MENU_TEXT);
 
       } else {
-        // চ্যানেলে জয়েন না থাকলে সতর্কবার্তা দিবে
         await client.invoke(
           new Api.messages.SetBotCallbackAnswer({
             queryId: update.queryId,
@@ -242,14 +237,13 @@ client.addEventHandler(async (update) => {
   }
 });
 
-// ২. মূল মেসেজ হ্যান্ডলার (ফাইল ও টিকটক সম্পূর্ণ আলাদা মোড)
+// ২. মূল মেসেজ হ্যান্ডলার
 client.addEventHandler(async (event) => {
   const message = event.message;
   if (!message) return;
   const senderId = message.senderId;
   const chatId = message.chatId;
 
-  // চ্যানেল ভেরিফিকেশন
   const joined = await checkSubWithSpeed(senderId);
   if (!joined) {
     await sendJoinPrompt(client, chatId);
@@ -258,7 +252,6 @@ client.addEventHandler(async (event) => {
 
   const currentMode = userModes.get(String(senderId)) || 'main';
 
-  // ★ ১ নম্বর অগ্রাধিকার: ফাইল আসলে মোড অনুযায়ী চেক
   const hasRealFile = message.media && (message.media.document || message.media.photo);
   if (hasRealFile) {
     if (currentMode === 'tiktok' || currentMode === 'facebook') {
@@ -275,10 +268,8 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // ★ ২ নম্বর অগ্রাধিকার: টেক্সট ও বাটন ক্লিক হ্যান্ডলিং
   const text = (message.text || '').trim();
 
-  // /start কমান্ড দিলে
   if (text.startsWith('/start')) {
     userModes.set(String(senderId), 'main');
     cancelAutoBackTimer(senderId);
@@ -286,7 +277,6 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // বাটন ১: 𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤
   if (text === '𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤' || text === 'File To Link' || text === '/file') {
     userModes.set(String(senderId), 'file');
     startAutoBackTimer(chatId, senderId);
@@ -294,7 +284,6 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // বাটন ২: 𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨
   if (text === '𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨' || text === 'Tiktok Video' || text === '/tiktok') {
     userModes.set(String(senderId), 'tiktok');
     startAutoBackTimer(chatId, senderId);
@@ -302,15 +291,14 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // বাটন: 𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨
-  if (text === '𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨' || text === 'Facebook Video' || text === '/facebook' || text === '/fb') {
+  // Facebook বাটন
+  if (text === '𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝' || text === 'Facebook Download' || text === '𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨' || text === '/facebook' || text === '/fb') {
     userModes.set(String(senderId), 'facebook');
     startAutoBackTimer(chatId, senderId);
     await sendBackMenu(chatId, FACEBOOK_SERVICE_TEXT);
     return;
   }
 
-  // বাটন ৩: 𝐒𝐮𝐩𝐩𝐨𝐫𝐭 (স্ক্রিনশটের হুবহু ডিজাইন ও ইনলাইন বাটন)
   if (text === '𝐒𝐮𝐩𝐩𝐨𝐫𝐭' || text === 'Support' || text.toLowerCase().includes('support')) {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
     const prefillText = encodeURIComponent('আসসালামু আলাইকুম ভাইয়া!');
@@ -336,7 +324,6 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // বাটন ৪: '🔙 𝐁𝐚𝐜𝐤' (সুপার ফাস্ট হ্যান্ডলিং)
   if (text.includes('𝐁𝐚𝐜𝐤') || text.includes('Back') || text === '/back') {
     userModes.set(String(senderId), 'main');
     cancelAutoBackTimer(senderId);
@@ -344,7 +331,6 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // ★ ৩ নম্বর অগ্রাধিকার: টিকটক লিংক আসলে কঠোর মোড যাচাই
   const isTikTokLink = /(?:tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com)/i.test(text);
   if (isTikTokLink) {
     if (currentMode === 'file' || currentMode === 'facebook') {
@@ -373,19 +359,18 @@ client.addEventHandler(async (event) => {
     }
   }
 
-  // ★ Facebook লিংক চেক
   const isFacebookLink = /(?:facebook\.com|fb\.watch|fb\.com)/i.test(text);
   if (isFacebookLink) {
     if (currentMode === 'file' || currentMode === 'tiktok') {
       await message.reply({ 
-        message: '⚠️ আপনি অন্য মোডে আছেন! Facebook ভিডিও ডাউনলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" মোড সিলেক্ট করুন।' 
+        message: '⚠️ আপনি অন্য মোডে আছেন! Facebook ভিডিও ডাউনলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝" মোড সিলেক্ট করুন।' 
       });
       return;
     }
 
     if (currentMode === 'main') {
       await message.reply({ 
-        message: '⚠️ Facebook ভিডিও ডাউনলোড করতে প্রথমে নিচের মেনু থেকে "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" বাটনটি বেছে নিন।' 
+        message: '⚠️ Facebook ভিডিও ডাউনলোড করতে প্রথমে নিচের মেনু থেকে "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝" বাটনটি বেছে নিন।' 
       });
       return;
     }
@@ -397,7 +382,6 @@ client.addEventHandler(async (event) => {
     }
   }
 
-  // সাধারণ বা ভুল টেক্সট পাঠালে মোড অনুযায়ী নির্দেশনা
   if (currentMode === 'tiktok') {
     await message.reply({ message: '⚠️ অনুগ্রহ করে একটি সঠিক টিকটক ভিডিওর লিংক পাঠান (যেমন: https://vt.tiktok.com/...)' });
   } else if (currentMode === 'facebook') {
@@ -409,11 +393,9 @@ client.addEventHandler(async (event) => {
   }
 }, new NewMessage({ incoming: true }));
 
-// ডাউনলোড রাউট সেটআপ
 setupDownloadRoute(app, client);
 app.get('/', (req, res) => res.send('Multi-Function Bot Server is Live!'));
 
-// ৫-২০ দিন বা ১ মাস পরেও যেন সকেট ফ্রেশ থাকে (MTProto 24/7 Keep-Alive)
 setInterval(async () => {
   try {
     if (client && client.connected) {
@@ -424,7 +406,6 @@ setInterval(async () => {
   } catch (e) {}
 }, 25 * 1000);
 
-// সেলফ-পিং
 setInterval(() => {
   if (BASE_URL) fetch(BASE_URL).catch(() => {});
 }, 8 * 60 * 1000);
