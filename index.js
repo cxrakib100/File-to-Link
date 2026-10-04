@@ -4,7 +4,6 @@ const https = require('https');
 const { TelegramClient, Api } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 const { NewMessage } = require('telegram/events');
-const { Button } = require('telegram/tl/custom/button');
 
 const { isUserJoined, sendJoinPrompt } = require('./forceSub');
 const { processFileUpload, setupDownloadRoute } = require('./fileHandler');
@@ -56,17 +55,30 @@ function sendFastTelegramRequest(endpoint, payload) {
   });
 }
 
+// ⚡ রিয়েল-টাইম মেম্বারশিপ ক্যাশ (মাত্র ১০ সেকেন্ড, যাতে লিভ নেওয়া মাত্রই বট ধরে ফেলতে পারে)
 const subCache = new Map();
-const SUB_CACHE_TTL = 5 * 60 * 1000;
+const SUB_CACHE_TTL = 10 * 1000; // ১০ সেকেন্ড (হ্যাং হবে না এবং ইনস্ট্যান্ট লিভ ডিটেক্ট করবে)
 
 async function checkSubWithSpeed(userId) {
-  const cached = subCache.get(String(userId));
+  if (!userId) return false;
+  const userKey = String(userId);
+  const cached = subCache.get(userKey);
+
+  // ১০ সেকেন্ডের ভেতরে থাকলে ক্যাশ থেকে ইনস্ট্যান্ট রেজাল্ট (০ মিলি-সেকেন্ড স্পিড)
   if (cached && (Date.now() - cached.time < SUB_CACHE_TTL)) {
     return cached.joined;
   }
-  const joined = await isUserJoined(client, userId);
-  subCache.set(String(userId), { joined, time: Date.now() });
-  return joined;
+
+  try {
+    const joined = await isUserJoined(client, userId);
+    const isValid = Boolean(joined);
+    subCache.set(userKey, { joined: isValid, time: Date.now() });
+    return isValid;
+  } catch (err) {
+    console.error('ForceSub verification error:', err);
+    subCache.set(userKey, { joined: false, time: Date.now() });
+    return false;
+  }
 }
 
 const MAIN_MENU_TEXT = 
@@ -149,12 +161,12 @@ async function sendMainMenu(chatId, text) {
       reply_markup: {
         keyboard: [
           [
-            { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "success" },
-            { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }
+            { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤" },
+            { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" }
           ],
           [
-            { text: "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" },
-            { text: "𝐒𝐮𝐩𝐩𝐨𝐫𝐭", style: "danger" }
+            { text: "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" },
+            { text: "𝐒𝐮𝐩𝐩𝐨𝐫𝐭" }
           ]
         ],
         resize_keyboard: true
@@ -175,7 +187,7 @@ async function sendBackMenu(chatId, text) {
       reply_markup: {
         keyboard: [
           [
-            { text: "🔙 𝐁𝐚𝐜𝐤", style: "danger" }
+            { text: "🔙 𝐁𝐚𝐜𝐤" }
           ]
         ],
         resize_keyboard: true
@@ -186,12 +198,28 @@ async function sendBackMenu(chatId, text) {
   }
 }
 
+// 🔒 জয়েন না থাকলে কিবোর্ড লুকিয়ে ফেলার ফাংশন
+async function hideKeyboardAndLock(chatId) {
+  try {
+    const cleanId = String(chatId).replace(/[^0-9-]/g, '');
+    await sendFastTelegramRequest('sendMessage', {
+      chat_id: cleanId,
+      text: '🔒 **বটের সকল ফিচার ব্যবহার করতে চ্যানেলে জয়েন করা বাধ্যতামূলক!**',
+      parse_mode: 'Markdown',
+      reply_markup: { remove_keyboard: true }
+    });
+  } catch (e) {}
+}
+
 client.addEventHandler(async (update) => {
   if (update.className === 'UpdateBotCallbackQuery') {
     const data = update.data ? update.data.toString() : '';
 
     if (data === 'check_sub') {
       const senderId = update.userId;
+      
+      // বাটন প্রেস করলে কোনো ক্যাশ চলবে না, সরাসরি লাইভ চেক হবে
+      subCache.delete(String(senderId));
       const joined = await isUserJoined(client, senderId);
 
       if (joined) {
@@ -216,10 +244,11 @@ client.addEventHandler(async (update) => {
         await sendMainMenu(senderId, MAIN_MENU_TEXT);
 
       } else {
+        subCache.set(String(senderId), { joined: false, time: Date.now() });
         await client.invoke(
           new Api.messages.SetBotCallbackAnswer({
             queryId: update.queryId,
-            message: '⚠️ আপনি এখনো চ্যানেলে জয়েন করেননি! দয়া করে আগে চ্যানেলে জয়েন করুন।',
+            message: '⚠️ আপনি এখনো চ্যানেলে জয়েন করেননি! দয়া করে আগে চ্যানেলে জয়েন করে আবার চাপুন।',
             alert: true,
           })
         );
@@ -234,8 +263,16 @@ client.addEventHandler(async (event) => {
   const senderId = message.senderId;
   const chatId = message.chatId;
 
+  if (!senderId) return;
+
+  // 🛡️ কঠোর সুরক্ষা: প্রতি অ্যাকশনে রিয়েল-টাইম মেম্বারশিপ চেক
   const joined = await checkSubWithSpeed(senderId);
   if (!joined) {
+    userModes.delete(String(senderId));
+    cancelAutoBackTimer(senderId);
+
+    // সব মেনু বাটন হাইড করে জয়েন প্রম্পট দেওয়া
+    await hideKeyboardAndLock(chatId);
     await sendJoinPrompt(client, chatId);
     return;
   }
