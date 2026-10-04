@@ -9,6 +9,13 @@ try {
   youtubedl = require('youtube-dl-exec');
 } catch (e) {}
 
+// ফেসবুক অফিসিয়াল ক্রলার হেডার (লগইন ওয়াল বাইপাস করতে)
+const FB_CRAWLER_HEADERS = {
+  'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9'
+};
+
 // সংখ্যা ফরম্যাটিং (3.8M, 15K ইত্যাদি)
 function formatNumber(num) {
   if (!num) return null;
@@ -20,7 +27,7 @@ function formatNumber(num) {
   return String(Math.floor(n));
 }
 
-// 📅 আপলোডের তারিখ ও এক লাইনে সংক্ষিপ্ত বয়স হিসাব
+// 📅 আপলোডের তারিখ ও এক লাইনে সংক্ষিপ্ত বয়স
 function formatUploadDate(dateInput) {
   if (!dateInput) return null;
   let d;
@@ -49,7 +56,7 @@ function formatUploadDate(dateInput) {
 
   let agoText = '';
   if (diffDays === 0) {
-    agoText = 'আজকের ভিডিও';
+    agoText = 'আজকের পোস্ট';
   } else if (diffDays < 30) {
     agoText = `${diffDays} দিন`;
   } else if (diffDays < 365) {
@@ -66,49 +73,38 @@ function formatUploadDate(dateInput) {
   return { date: formattedDate, ago: agoText };
 }
 
-// টাইটেল থেকে ক্রিয়েটর ও বাড়তি অংশ পরিষ্কার করা
+// টাইটেল থেকে POV এবং ক্রিয়েটরের নাম মোছা
 function cleanTitle(t, author) {
-  if (!t || typeof t !== 'string') return 'Facebook Reel';
+  if (!t || typeof t !== 'string') return 'Facebook Post';
   let s = t.trim()
     .replace(/^\d+(\.\d+)?[KkMm]?\s*views?\s*[·•|]\s*\d+(\.\d+)?[KkMm]?\s*reactions?\s*[·•|]?\s*/i, '')
     .replace(/^\d+(\.\d+)?[KkMm]?\s*views?\s*/i, '');
 
-    // 🚫 এই লাইনটি যোগ করা হয়েছে: ডেসক্রিপশনের শুরুতে POV : বা POV থাকলে তা মুছে ফেলবে
+  // 🚫 POV ফিল্টার (POV : বা POV - সম্পূর্ণ মুছে ফেলবে)
   s = s.replace(/^POV\s*[:\-\s]\s*/i, '');
-  
-  // যদি টাইটেলের শেষে ক্রিয়েটরের নাম থাকে (| Bondi Pathshala School), তা মুছে ফেলা
+
+  // ক্রিয়েটরের নাম টাইটেল থেকে মোছা
   if (author && typeof author === 'string') {
     const cleanAuthor = author.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const authorRegex = new RegExp(`\\s*[|•·\\-–—]\\s*${cleanAuthor}\\s*$`, 'i');
     s = s.replace(authorRegex, '');
   }
 
-  // Facebook বা Reel ট্যাগ থাকলে মোছা
   s = s.replace(/\s*[|•·\\-–—]\s*(?:Facebook|Reel|Reels|Watch)\s*$/i, '');
-
-  if (s.length > 95) s = s.substring(0, 95).trim() + '...';
-  return s.trim() || 'Facebook Reel';
+  if (s.length > 100) s = s.substring(0, 100).trim() + '...';
+  return s.trim() || 'Facebook Post';
 }
 
-// 🎨 আপনার রিকোয়ারমেন্ট অনুযায়ী পারফেক্ট সিঙ্গেল-লাইন ডিজাইন
-function buildCaption(data) {
+// 🎨 ভিডিও ক্যাপশন ডিজাইন (এক লাইনে সাইজ করা)
+function buildVideoCaption(data) {
   let caption = '⚡ **ডাউনলোড সম্পন্ন হয়েছে!**\n\n';
-  
-  // ডেসক্রিপশন (ক্রিয়েটরের নাম ছাড়া ক্লিন)
   caption += '📝 **বিবরণ:** ' + (data.title || 'Facebook Video') + '\n';
   caption += '━━━━━━━━━━━━━━━━━━━━\n';
 
-  if (data.author) {
-    caption += '👤 **ক্রিয়েটর:** ' + data.author + '\n';
-  }
-  if (data.views) {
-    caption += '👁️ **মোট ভিউজ:** ' + formatNumber(data.views) + ' Views\n';
-  }
-  if (data.reactions) {
-    caption += '❤️ **রিঅ্যাকশন:** ' + formatNumber(data.reactions) + ' Likes\n';
-  }
+  if (data.author) caption += '👤 **ক্রিয়েটর:** ' + data.author + '\n';
+  if (data.views) caption += '👁️ **মোট ভিউজ:** ' + formatNumber(data.views) + ' Views\n';
+  if (data.reactions) caption += '❤️ **রিঅ্যাকশন:** ' + formatNumber(data.reactions) + ' Likes\n';
 
-  // 📅 তারিখ ও সংক্ষিপ্ত বয়স (এক লাইনে দেখাবে)
   const dateInfo = formatUploadDate(data.uploadDate);
   if (dateInfo) {
     caption += '📅 **আপলোড তারিখ:** ' + dateInfo.date + '\n';
@@ -119,7 +115,29 @@ function buildCaption(data) {
   caption += '📱 **উৎস:** Facebook\n';
   caption += '━━━━━━━━━━━━━━━━━━━━\n';
   caption += '⚡ **Power By Cx_Rakib**';
+  return caption;
+}
 
+// 🎨 টেক্সট পোস্ট বা প্রোফাইলের ইনফো কার্ড ডিজাইন
+function buildInfoCaption(data) {
+  let caption = '📋 **ফেসবুক তথ্য সংগ্রহ সম্পন্ন!**\n\n';
+  if (data.author) caption += '👤 **নাম/প্রোফাইল:** ' + data.author + '\n';
+  if (data.title && data.title !== 'Facebook Post') {
+    caption += '📝 **বিবরণ:** ' + data.title + '\n';
+  }
+  caption += '━━━━━━━━━━━━━━━━━━━━\n';
+
+  if (data.reactions) caption += '❤️ **রিঅ্যাকশন:** ' + formatNumber(data.reactions) + ' Likes\n';
+
+  const dateInfo = formatUploadDate(data.uploadDate);
+  if (dateInfo) {
+    caption += '📅 **তারিখ:** ' + dateInfo.date + '\n';
+    caption += '⏳ **বয়স:** ' + dateInfo.ago + '\n';
+  }
+
+  caption += '📱 **উৎস:** Facebook Profile/Post\n';
+  caption += '━━━━━━━━━━━━━━━━━━━━\n';
+  caption += '⚡ **Power By Cx_Rakib**';
   return caption;
 }
 
@@ -133,17 +151,15 @@ function unescapeFb(str) {
   }
 }
 
-// পেজ মেটাডাটা ও পাওয়ারফুল লাইক স্ক্র্যাপার
+// পেজ থেকে মেটাডাটা ও ভিডিও/ছবি/পোস্ট স্ক্র্যাপার
 function extractMetaFromHtml(html) {
   let meta = {};
 
-  // ভিউজ
   const viewsMatch = html.match(/"play_count":\s*(\d+)/) || 
                      html.match(/"video_view_count":\s*(\d+)/) || 
                      html.match(/(\d+(?:\.\d+)?[KkMm]?)\s*views/i);
   if (viewsMatch) meta.views = viewsMatch[1];
 
-  // রিঅ্যাকশন / লাইক (গ্যারান্টিড ক্যাচ)
   const reactMatch = html.match(/"reaction_count":\s*\{\s*"count":\s*(\d+)/) || 
                      html.match(/"reaction_count":\s*(\d+)/) ||
                      html.match(/"likers":\s*\{\s*"count":\s*(\d+)/) || 
@@ -151,25 +167,27 @@ function extractMetaFromHtml(html) {
                      html.match(/(\d+(?:\.\d+)?[KkMm]?)\s*(?:reactions?|likes?)/i);
   if (reactMatch) meta.reactions = reactMatch[1];
 
-  // ক্রিয়েটর
   const authorMatch = html.match(/Reel by ([^|•\n<]+)/i) || 
                       html.match(/"owner_name":\s*"([^"]+)"/) || 
+                      html.match(/<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i) ||
                       html.match(/"name":\s*"([^"]+)"[^}]*"__typename":\s*"User"/);
-  if (authorMatch) meta.author = authorMatch[1].trim();
+  if (authorMatch) meta.author = authorMatch[1].replace(/ \| Facebook$/i, '').trim();
 
-  // টাইটেল (ক্রিয়েটর ফিল্টারসহ)
-  const titleMatch = html.match(/<title>([^<]+)<\/title>/i) || 
-                     html.match(/<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i);
+  const titleMatch = html.match(/<meta\s+property=["']og:description["']\s+content=["']([^"']+)["']/i) ||
+                     html.match(/<title>([^<]+)<\/title>/i);
   if (titleMatch) meta.title = cleanTitle(titleMatch[1], meta.author);
 
-  // আপলোডের সময়
   const timeMatch = html.match(/"publish_time":\s*(\d+)/) ||
                     html.match(/"creation_time":\s*(\d+)/) ||
                     html.match(/"uploadDate":\s*"([^"]+)"/) ||
-                    html.match(/<meta\s+property=["']article:published_time["']\s+content=["']([^"]+)"/i);
+                    html.match(/<meta\s+property=["']article:published_time["']\s+content=["']([^"]+)["']/i);
   if (timeMatch) meta.uploadDate = timeMatch[1];
 
-  // ডিরেক্ট লিংক
+  // প্রিভিউ ছবি (যদি ভিডিও না থাকে ছবির জন্য)
+  const imgMatch = html.match(/<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']/i);
+  if (imgMatch) meta.image = imgMatch[1].replace(/&amp;/g, '&');
+
+  // ডিরেক্ট ভিডিও
   const hd = html.match(/"browser_native_hd_url"\s*:\s*("[^"]+")/) || html.match(/"playable_url_quality_hd"\s*:\s*("[^"]+")/);
   const sd = html.match(/"browser_native_sd_url"\s*:\s*("[^"]+")/) || html.match(/"playable_url"\s*:\s*("[^"]+")/);
   const match = hd || sd;
@@ -184,7 +202,7 @@ function extractMetaFromHtml(html) {
   return meta;
 }
 
-// লিঙ্ক রেজলভার
+// 🔗 স্মার্ট রেজলভার: পোস্ট, গ্রুপ বা প্রোফাইল যাই হোক আসল ভিডিও লিঙ্ক বের করবে
 async function resolveFacebookLink(inputUrl) {
   let targetUrl = inputUrl.trim();
   let cachedMeta = {};
@@ -192,47 +210,35 @@ async function resolveFacebookLink(inputUrl) {
   try {
     const res = await fetch(targetUrl, {
       method: 'GET',
+      headers: FB_CRAWLER_HEADERS,
       redirect: 'follow',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml',
-      },
-      signal: AbortSignal.timeout(5000)
+      signal: AbortSignal.timeout(6000)
     });
 
     const html = await res.text();
     cachedMeta = extractMetaFromHtml(html);
 
-    if (targetUrl.includes('/posts/') || targetUrl.includes('story.php') || targetUrl.includes('permalink.php')) {
-      const nestedReel = html.match(/(?:https?:\/\/(?:www\.|m\.)?facebook\.com)?\/(?:share\/r\/|reel\/)([a-zA-Z0-9_-]+)/i);
-      if (nestedReel) {
-        let cleanNested = nestedReel[0];
-        if (!cleanNested.startsWith('http')) cleanNested = 'https://www.facebook.com' + cleanNested;
-        return { realUrl: cleanNested, cachedMeta };
-      }
+    // 🎯 গুরুত্বপূর্ণ ফিক্স: পোস্টের ভেতরের যেকোনো লুকানো রিল বা ভিডিও লিঙ্ক বের করা
+    const nestedVideoMatch = html.match(/https?:\/\/(?:www\.|m\.)?facebook\.com\/(?:share\/[rv]\/|reel\/|watch\/\?v=)[a-zA-Z0-9_-]+/i) ||
+                             html.match(/(?:share\/[rv]\/|reel\/)([a-zA-Z0-9_-]+)/i);
+
+    if (nestedVideoMatch) {
+      let nested = nestedVideoMatch[0];
+      if (!nested.startsWith('http')) nested = 'https://www.facebook.com/' + nested;
+      // ভেতরের রিল লিঙ্কটি পেলে সেটি দিয়ে রিপ্লেস হবে
+      return { realUrl: nested, cachedMeta, isVideo: true };
     }
 
-    let finalUrl = res.url;
-    if (finalUrl.includes('next=')) {
-      try {
-        const u = new URL(finalUrl);
-        const next = u.searchParams.get('next');
-        if (next) finalUrl = decodeURIComponent(next);
-      } catch (e) {}
-    }
+    let finalUrl = res.url.split('?')[0];
+    const isVideo = !!(cachedMeta.directUrl || finalUrl.includes('/reel/') || finalUrl.includes('/videos/') || finalUrl.includes('watch'));
+    return { realUrl: finalUrl, cachedMeta, isVideo };
 
-    const canonicalMatch = html.match(/<link\s+rel=["']canonical["']\s+href=["']([^"']+)["']/i);
-    if (canonicalMatch && canonicalMatch[1] && !canonicalMatch[1].includes('/share/')) {
-      finalUrl = canonicalMatch[1];
-    }
-
-    return { realUrl: finalUrl.split('?')[0], cachedMeta };
   } catch (e) {
-    return { realUrl: targetUrl.split('?')[0], cachedMeta };
+    return { realUrl: targetUrl.split('?')[0], cachedMeta, isVideo: false };
   }
 }
 
-// 🚀 ENGINE 1: FDown API (Views, Likes সহ)
+// 🚀 ENGINE 1: FDown API
 async function engineFdownApi(fbUrl) {
   try {
     const res = await fetch('https://fdown.isuru.eu.org/download', {
@@ -303,7 +309,7 @@ async function engineFbdownxyz(fbUrl) {
   }
 }
 
-// 🚀 ENGINE 4: yt-dlp ফাস্ট ফলব্যাক
+// 🚀 ENGINE 4: yt-dlp ফাস্ট ব্যাকআপ
 async function engineYtDlpFast(fbUrl) {
   if (!youtubedl) throw new Error('yt-dlp missing');
   const outPath = path.join(os.tmpdir(), 'fb_yt_' + Date.now() + '.mp4');
@@ -364,7 +370,7 @@ async function getFastestVideo(realFbUrl, cachedMeta) {
   return videoResult;
 }
 
-// ⚡ ৫-১০ মিনিটের বড় ভিডিওর জন্য 4MB বাফারসহ আল্ট্রা-স্পিড ডাউনলোড
+// ⚡ ৪MB বাফারের সাথে সুপার ফাস্ট ডাউনলোডার
 async function downloadFast(url) {
   const tempPath = path.join(os.tmpdir(), 'fb_' + Date.now() + '.mp4');
   const res = await fetch(url, {
@@ -372,10 +378,10 @@ async function downloadFast(url) {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       'Referer': 'https://www.facebook.com/'
     },
-    signal: AbortSignal.timeout(240000) // ৪ মিনিট বরাদ্দ
+    signal: AbortSignal.timeout(240000)
   });
   if (!res.ok) throw new Error('Download failed');
-  const stream = fs.createWriteStream(tempPath, { highWaterMark: 4 * 1024 * 1024 }); // 4MB বাফার
+  const stream = fs.createWriteStream(tempPath, { highWaterMark: 4 * 1024 * 1024 });
   await pipeline(Readable.fromWeb(res.body), stream);
   return tempPath;
 }
@@ -387,39 +393,61 @@ async function handleFacebookDownload(client, chatId, text) {
   if (!match) return false;
 
   const rawUrl = match[0];
+
+  // 💬 আপনার চাহিদামতো আকর্ষণীয় ওয়েটিং মেসেজ
   const statusMsg = await client.sendMessage(chatId, {
-    message: '⚡ **আল্ট্রা-ফাস্ট প্রসেসিং চালু...**\nবিবরণ ও অডিওসহ ভিডিও প্রস্তুত হচ্ছে 🚀',
+    message: '⚡ **ভিডিও ডাউনলোড হচ্ছে...**\nদয়া করে একটু অপেক্ষা করুন 🚀\n━━━━━━━━━━━━━━━━━━━━\n🔍 অডিও ও সেরা কোয়ালিটি প্রস্তুত করা হচ্ছে...',
     parseMode: 'md',
   });
 
   let localPath = null;
 
   try {
-    const { realUrl, cachedMeta } = await resolveFacebookLink(rawUrl);
-    const videoData = await getFastestVideo(realUrl, cachedMeta);
-    if (!videoData) throw new Error('Video source not found');
+    // ১. লিংক সমাধান ও ভেতরের রিল/ভিডিও খোঁজা
+    const { realUrl, cachedMeta, isVideo } = await resolveFacebookLink(rawUrl);
 
-    if (videoData.localPath) {
-      localPath = videoData.localPath;
-    } else if (videoData.url) {
-      localPath = await downloadFast(videoData.url);
-    } else {
-      throw new Error('No valid stream');
+    // ২. যদি এটি ভিডিও/রিল হয় তাহলে ভিডিও ডাউনলোড করবে
+    const videoData = await getFastestVideo(realUrl, cachedMeta);
+
+    if (videoData && (videoData.localPath || videoData.url)) {
+      if (videoData.localPath) {
+        localPath = videoData.localPath;
+      } else {
+        localPath = await downloadFast(videoData.url);
+      }
+
+      const caption = buildVideoCaption(videoData);
+
+      // 🚀 workers: 8 দিয়ে সর্বোচ্চ গতিতে আপলোড
+      await client.sendFile(chatId, {
+        file: localPath,
+        caption: caption,
+        parseMode: 'md',
+        workers: 8,
+        supportsStreaming: true,
+      });
+
+      try { await client.deleteMessages(chatId, [statusMsg.id], { revoke: true }); } catch (e) {}
+      if (localPath && fs.existsSync(localPath)) try { fs.unlinkSync(localPath); } catch (e) {}
+      return true;
     }
 
-    const caption = buildCaption(videoData);
-
-    // 🚀 workers: 8 দিয়ে সর্বোচ্চ গতিতে প্যারালাল আপলোড
-    await client.sendFile(chatId, {
-      file: localPath,
-      caption: caption,
-      parseMode: 'md',
-      workers: 8, // সর্বোচ্চ ৮টি প্যারালাল স্ট্রিম (১০ মিনিটের বড় ভিডিও সুপারফাস্ট আপলোড হবে)
-      supportsStreaming: true,
-    });
+    // ৩. যদি কোনো ভিডিও না থাকে (যেমন: সাধারণ পোস্ট/স্ট্যাটাস/প্রোফাইল লিংক)
+    const infoCaption = buildInfoCaption(cachedMeta);
+    if (cachedMeta.image) {
+      await client.sendFile(chatId, {
+        file: cachedMeta.image,
+        caption: infoCaption,
+        parseMode: 'md',
+      });
+    } else {
+      await client.sendMessage(chatId, {
+        message: infoCaption,
+        parseMode: 'md',
+      });
+    }
 
     try { await client.deleteMessages(chatId, [statusMsg.id], { revoke: true }); } catch (e) {}
-    if (localPath && fs.existsSync(localPath)) try { fs.unlinkSync(localPath); } catch (e) {}
     return true;
 
   } catch (err) {
@@ -428,7 +456,7 @@ async function handleFacebookDownload(client, chatId, text) {
     try {
       await client.editMessage(chatId, {
         message: statusMsg.id,
-        text: '❌ **ভিডিও নামানো যায়নি!**\n\nপোস্টে কোনো পাবলিক ভিডিও পাওয়া যায়নি অথবা এটি রিমুভ করা হয়েছে। অন্য কোনো ভিডিওর লিংক দিয়ে চেষ্টা করুন।',
+        text: '❌ **তথ্য বা ভিডিও লোড করা যায়নি!**\n\nলিংকটি প্রাইভেট অথবা রিমুভ করা হয়েছে। অনুগ্রহ করে সঠিক পাবলিক লিংক দিয়ে চেষ্টা করুন।',
         parseMode: 'md',
       });
     } catch (e) {}
