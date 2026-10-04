@@ -6,7 +6,7 @@ const { StringSession } = require('telegram/sessions');
 const { NewMessage } = require('telegram/events');
 const { Button } = require('telegram/tl/custom/button');
 
-// মডিউলসমূহ
+// Modules
 const { isUserJoined, sendJoinPrompt } = require('./forceSub');
 const { processFileUpload, setupDownloadRoute } = require('./fileHandler');
 const { handleTikTokDownload } = require('./tiktokHandler');
@@ -18,7 +18,6 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const BASE_URL = (process.env.BASE_URL || '').replace(/\/$/, '');
 const PORT = process.env.PORT || 3000;
 
-// আল্ট্রা ফাস্ট কানেকশন এবং অটো-রিকানেক্ট সেটিংস
 const client = new TelegramClient(new StringSession(''), API_ID, API_HASH, { 
   connectionRetries: 10,
   autoReconnect: true,
@@ -29,9 +28,8 @@ const app = express();
 let botUsername = '';
 const userModes = new Map();
 const userTimeouts = new Map();
-const TWO_HOURS = 2 * 60 * 60 * 1000; // ২ ঘণ্টা (মিলিসেকেন্ডে)
+const TWO_HOURS = 2 * 60 * 60 * 1000;
 
-// অতি দ্রুত বাটন ও মেসেজ পাঠানোর জন্য পার্মানেন্ট হাই-স্পিড সকেট
 const httpAgent = new https.Agent({ 
   keepAlive: true, 
   keepAliveMsecs: 30000, 
@@ -39,7 +37,6 @@ const httpAgent = new https.Agent({
   maxFreeSockets: 20
 });
 
-// লাইটনিং ফাস্ট টেলিগ্রাম রিকোয়েস্ট সেন্ডার
 function sendFastTelegramRequest(endpoint, payload) {
   return new Promise((resolve) => {
     const data = JSON.stringify(payload);
@@ -60,7 +57,6 @@ function sendFastTelegramRequest(endpoint, payload) {
   });
 }
 
-// চেকিং অপরিবর্তিত রেখে বাটন ক্লিকে ইনস্ট্যান্ট রেসপন্স দেওয়ার জন্য ৫ মিনিটের মেমরি ক্যাশ
 const subCache = new Map();
 const SUB_CACHE_TTL = 5 * 60 * 1000;
 
@@ -118,7 +114,6 @@ const FACEBOOK_SERVICE_TEXT =
 '🔙 𝐁𝐚𝐜𝐤 বাটন চাপুন।
 ━━━━━━━━━━━━━━━━━━━━━━`;
 
-// ২ ঘণ্টার অটো-ব্যাক টাইমার
 function startAutoBackTimer(chatId, userId) {
   if (userTimeouts.has(String(userId))) {
     clearTimeout(userTimeouts.get(String(userId)));
@@ -145,7 +140,6 @@ function cancelAutoBackTimer(userId) {
   }
 }
 
-// প্রধান মেনুর কিবোর্ড (আল্ট্রা ফাস্ট)
 async function sendMainMenu(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
@@ -172,7 +166,6 @@ async function sendMainMenu(chatId, text) {
   }
 }
 
-// সাব-মেনু কিবোর্ড ও ব্যাক কিবোর্ড (আল্ট্রা ফাস্ট)
 async function sendBackMenu(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
@@ -194,7 +187,6 @@ async function sendBackMenu(chatId, text) {
   }
 }
 
-// ১. ইনলাইন ভেরিফিকেশন
 client.addEventHandler(async (update) => {
   if (update.className === 'UpdateBotCallbackQuery') {
     const data = update.data ? update.data.toString() : '';
@@ -237,7 +229,6 @@ client.addEventHandler(async (update) => {
   }
 });
 
-// ২. মূল মেসেজ হ্যান্ডলার
 client.addEventHandler(async (event) => {
   const message = event.message;
   if (!message) return;
@@ -291,7 +282,6 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // Facebook বাটন
   if (text === '𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝' || text === 'Facebook Download' || text === '𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨' || text === '/facebook' || text === '/fb') {
     userModes.set(String(senderId), 'facebook');
     startAutoBackTimer(chatId, senderId);
@@ -415,5 +405,5 @@ app.listen(PORT, async () => {
   await client.start({ botAuthToken: BOT_TOKEN });
   const me = await client.getMe();
   botUsername = me.username;
-  console.log(`বট @${botUsername} সফলভাবে চালু হয়েছে!`);
+  console.log(`Bot @${botUsername} started successfully!`);
 });
