@@ -5,7 +5,7 @@ const { Readable } = require('stream');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 
-// ========== Fast Facebook Engines (parallel race) ==========
+// ========== Fast Facebook Engines ==========
 
 async function engine1_fdown(fbUrl) {
   try {
@@ -25,8 +25,8 @@ async function engine1_fdown(fbUrl) {
         description: data?.video_info?.description || data?.description || null,
         author: data?.video_info?.uploader || data?.author || null,
         views: data?.video_info?.view_count || data?.views || null,
-        reactions: data?.reactions || data?.like_count || null,
-        comments: data?.comments || data?.comment_count || null,
+        reactions: data?.reactions || data?.like_count || data?.likes || data?.video_info?.like_count || null,
+        comments: data?.comments || data?.comment_count || data?.video_info?.comment_count || null,
         quality: 'HD'
       };
     }
@@ -49,9 +49,9 @@ async function engine2_mediasaver(fbUrl) {
         title: cleanTitle(data.title || data?.data?.title),
         description: data?.description || data?.data?.description || null,
         author: data?.author || data?.data?.author || null,
-        views: data?.views || data?.view_count || null,
-        reactions: data?.likes || data?.reactions || null,
-        comments: data?.comments || null,
+        views: data?.views || data?.view_count || data?.data?.views || null,
+        reactions: data?.likes || data?.reactions || data?.like_count || data?.data?.likes || null,
+        comments: data?.comments || data?.data?.comments || null,
         quality: data?.links?.hd ? 'HD' : 'SD'
       };
     }
@@ -67,7 +67,6 @@ async function engine3_fbdownxyz(fbUrl) {
     });
     if (!res.ok) return null;
     const data = await res.json();
-    // Prefer SD sometimes because it more often has audio muxed
     const videoUrl = data?.sd || data?.hd || data?.url || data?.download_url || (data?.links && data.links[0]?.url);
     if (videoUrl && videoUrl.startsWith('http')) {
       return {
@@ -75,9 +74,9 @@ async function engine3_fbdownxyz(fbUrl) {
         title: cleanTitle(data.title),
         description: data?.description || null,
         author: data?.author || null,
-        views: data?.views || null,
-        reactions: data?.likes || data?.reactions || null,
-        comments: data?.comments || null,
+        views: data?.views || data?.view_count || null,
+        reactions: data?.likes || data?.reactions || data?.like_count || null,
+        comments: data?.comments || data?.comment_count || null,
         quality: data?.hd ? 'HD' : 'SD'
       };
     }
@@ -103,8 +102,8 @@ async function engine4_xcasper(fbUrl) {
         description: data?.description || null,
         author: data?.author || data?.uploader || null,
         views: data?.views || data?.view_count || null,
-        reactions: data?.reactions || data?.likes || null,
-        comments: data?.comments || null,
+        reactions: data?.reactions || data?.likes || data?.like_count || null,
+        comments: data?.comments || data?.comment_count || null,
         quality: 'HD'
       };
     }
@@ -153,7 +152,6 @@ async function engine6_fdownnet(fbUrl) {
     });
     if (!res.ok) return null;
     const html = await res.text();
-    // Prefer SD link first (more often has audio)
     const sdMatch = html.match(/href="(https?:\/\/[^\"]+?)"[^>]*>\s*Download in SD/i) || html.match(/sdlink"[^>]*href="(https?:\/\/[^"]+)/i);
     const hdMatch = html.match(/href="(https?:\/\/[^\"]+?)"[^>]*>\s*Download in HD/i) || html.match(/hdlink"[^>]*href="(https?:\/\/[^"]+)/i);
     const videoUrl = (sdMatch && sdMatch[1]) || (hdMatch && hdMatch[1]);
@@ -171,7 +169,6 @@ async function engine6_fdownnet(fbUrl) {
 function cleanTitle(t) {
   if (!t || typeof t !== 'string') return null;
   let s = t.trim();
-  // Remove view/reaction prefixes that APIs sometimes put in title
   s = s.replace(/^\d+(\.\d+)?[KkMm]?\s*views?\s*[·•|]\s*\d+(\.\d+)?[KkMm]?\s*reactions?\s*[·•|]?\s*/i, '');
   s = s.replace(/^\d+(\.\d+)?[KkMm]?\s*views?\s*/i, '');
   if (s.length > 120) s = s.substring(0, 120).trim() + '...';
@@ -187,7 +184,7 @@ function formatNumber(num) {
   return String(Math.floor(n));
 }
 
-// Race engines - take first good result quickly
+// Merge best data from ALL engines
 async function getBestFacebookVideo(fbUrl) {
   const engines = [
     engine1_fdown,
@@ -198,22 +195,37 @@ async function getBestFacebookVideo(fbUrl) {
     engine6_fdownnet
   ];
 
-  // Promise.any style - first success wins, but we still collect for better metadata
   const results = await Promise.allSettled(engines.map(fn => fn(fbUrl)));
 
-  let best = null;
+  let best = {
+    url: null,
+    title: null,
+    description: null,
+    author: null,
+    views: null,
+    reactions: null,
+    comments: null,
+    quality: 'HD'
+  };
+
   for (const r of results) {
-    if (r.status === 'fulfilled' && r.value && r.value.url) {
-      if (!best) {
-        best = r.value;
-      } else {
-        // Prefer one with title + views
-        const score = (r.value.title ? 2 : 0) + (r.value.views ? 1 : 0) + (r.value.quality === 'HD' ? 1 : 0);
-        const bestScore = (best.title ? 2 : 0) + (best.views ? 1 : 0) + (best.quality === 'HD' ? 1 : 0);
-        if (score > bestScore) best = r.value;
-      }
-    }
+    if (r.status !== 'fulfilled' || !r.value) continue;
+    const v = r.value;
+
+    // Take first valid URL
+    if (!best.url && v.url) best.url = v.url;
+
+    // Merge metadata - keep the richest data
+    if (v.title && !best.title) best.title = v.title;
+    if (v.description && !best.description) best.description = v.description;
+    if (v.author && !best.author) best.author = v.author;
+    if (v.views && !best.views) best.views = v.views;
+    if (v.reactions && !best.reactions) best.reactions = v.reactions;
+    if (v.comments && !best.comments) best.comments = v.comments;
+    if (v.quality === 'HD') best.quality = 'HD';
   }
+
+  if (!best.url) return null;
   return best;
 }
 
@@ -224,7 +236,7 @@ function buildCaption(data) {
 
   let caption = '';
 
-  // ===== Layer 1: Views + Reactions (separate top line) =====
+  // ===== Top layer: Views + Reactions =====
   if (views || reactions) {
     const parts = [];
     if (views) parts.push(views + ' views');
@@ -232,30 +244,25 @@ function buildCaption(data) {
     caption += '📊 **' + parts.join(' · ') + '**\n\n';
   }
 
-  // ===== Layer 2: Clean Title =====
+  // ===== Title =====
   const title = data.title || 'Facebook Video';
   caption += '🎬 **' + title + '**\n\n';
 
-  // ===== Layer 3: Description (if different from title) =====
+  // ===== Description (only if different) =====
   if (data.description) {
     let desc = data.description.trim();
-    // Avoid repeating the title
-    if (data.title && desc.toLowerCase().includes(data.title.toLowerCase().substring(0, 30))) {
-      // skip or shorten
-    } else {
+    if (!(data.title && desc.toLowerCase().includes(data.title.toLowerCase().substring(0, 25)))) {
       if (desc.length > 150) desc = desc.substring(0, 150).trim() + '...';
       caption += desc + '\n\n';
     }
   }
 
-  // ===== Layer 4: Author =====
+  // ===== Author =====
   if (data.author) {
     caption += '👤 **তৈরি করেছেন:** ' + data.author + '\n';
   }
 
   caption += '━━━━━━━━━━━━━━━━━━━━\n';
-
-  // ===== Layer 5: Quality + Source =====
   caption += '✨ **Quality:** ' + (data.quality || 'Best Available') + '\n';
   caption += '📱 **Source:** Facebook\n';
   caption += '━━━━━━━━━━━━━━━━━━━━\n';
@@ -284,13 +291,11 @@ async function handleFacebookDownload(client, chatId, text) {
       throw new Error('No video found');
     }
 
-    if (!videoData.title) {
-      videoData.title = 'Facebook Video';
-    }
+    if (!videoData.title) videoData.title = 'Facebook Video';
 
     const captionText = buildCaption(videoData);
 
-    // Fast path - Telegram direct send
+    // Fast path
     const tgRes = await fetch('https://api.telegram.org/bot' + BOT_TOKEN + '/sendVideo', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -311,7 +316,7 @@ async function handleFacebookDownload(client, chatId, text) {
       return true;
     }
 
-    // Fallback download
+    // Fallback
     const tempFilePath = path.join('/tmp', 'fb_' + Date.now() + '.mp4');
     const videoRes = await fetch(videoData.url, {
       headers: { 'User-Agent': 'Mozilla/5.0' },
