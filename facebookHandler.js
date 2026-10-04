@@ -13,7 +13,7 @@ async function engine1_fdown(fbUrl) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url: fbUrl, quality: 'best' }),
-      signal: AbortSignal.timeout(12000)
+      signal: AbortSignal.timeout(10000)
     });
     if (!res.ok) return null;
     const data = await res.json();
@@ -21,9 +21,14 @@ async function engine1_fdown(fbUrl) {
     if (videoUrl && videoUrl.startsWith('http')) {
       return {
         url: videoUrl,
-        title: data?.video_info?.title || data?.title || 'Facebook Video',
-        views: data?.video_info?.view_count || null,
-        quality: 'HD'
+        title: data?.video_info?.title || data?.title || null,
+        description: data?.video_info?.description || data?.description || null,
+        author: data?.video_info?.uploader || data?.author || null,
+        views: data?.video_info?.view_count || data?.views || null,
+        reactions: data?.reactions || data?.like_count || null,
+        comments: data?.comments || data?.comment_count || null,
+        quality: 'HD',
+        hasAudio: true
       };
     }
   } catch (e) {}
@@ -34,7 +39,7 @@ async function engine2_mediasaver(fbUrl) {
   try {
     const res = await fetch('https://mediasaver.link/api/?url=' + encodeURIComponent(fbUrl), {
       headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(10000)
+      signal: AbortSignal.timeout(8000)
     });
     if (!res.ok) return null;
     const data = await res.json();
@@ -42,9 +47,14 @@ async function engine2_mediasaver(fbUrl) {
     if (videoUrl && typeof videoUrl === 'string' && videoUrl.startsWith('http')) {
       return {
         url: videoUrl,
-        title: data.title || data?.data?.title || 'Facebook Video',
+        title: data.title || data?.data?.title || null,
+        description: data?.description || data?.data?.description || null,
+        author: data?.author || data?.data?.author || null,
         views: data?.views || data?.view_count || null,
-        quality: data?.links?.hd ? 'HD' : 'SD'
+        reactions: data?.likes || data?.reactions || null,
+        comments: data?.comments || null,
+        quality: data?.links?.hd ? 'HD' : 'SD',
+        hasAudio: true
       };
     }
   } catch (e) {}
@@ -55,17 +65,23 @@ async function engine3_fbdownxyz(fbUrl) {
   try {
     const res = await fetch('https://api.fbdown.xyz/api?url=' + encodeURIComponent(fbUrl), {
       headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(10000)
+      signal: AbortSignal.timeout(8000)
     });
     if (!res.ok) return null;
     const data = await res.json();
+    // Prefer HD with audio if available
     const videoUrl = data?.hd || data?.sd || data?.url || data?.download_url || (data?.links && data.links[0]?.url);
     if (videoUrl && videoUrl.startsWith('http')) {
       return {
         url: videoUrl,
-        title: data.title || 'Facebook Video',
+        title: data.title || null,
+        description: data?.description || null,
+        author: data?.author || null,
         views: data?.views || null,
-        quality: data?.hd ? 'HD' : 'SD'
+        reactions: data?.likes || data?.reactions || null,
+        comments: data?.comments || null,
+        quality: data?.hd ? 'HD' : 'SD',
+        hasAudio: true
       };
     }
   } catch (e) {}
@@ -74,7 +90,6 @@ async function engine3_fbdownxyz(fbUrl) {
 
 async function engine4_snapsave(fbUrl) {
   try {
-    // snapsave style endpoint (common free proxies)
     const res = await fetch('https://snapsave.app/action.php', {
       method: 'POST',
       headers: {
@@ -84,16 +99,15 @@ async function engine4_snapsave(fbUrl) {
         'Referer': 'https://snapsave.app/'
       },
       body: 'url=' + encodeURIComponent(fbUrl),
-      signal: AbortSignal.timeout(12000)
+      signal: AbortSignal.timeout(10000)
     });
     if (!res.ok) return null;
     const text = await res.text();
-    // try extract direct video url from response
-    const match = text.match(/https?:\/\/[^"'\s]+\.(mp4|m3u8)[^"'\s]*/i) || text.match(/"url"\s*:\s*"(https?:\/\/[^"]+)"/i);
+    const match = text.match(/https?:\/\/[^"'\s]+\.(mp4)[^"'\s]*/i) || text.match(/"url"\s*:\s*"(https?:\/\/[^"]+)"/i);
     if (match) {
       const videoUrl = (match[1] || match[0]).replace(/\\/g, '');
       if (videoUrl.startsWith('http')) {
-        return { url: videoUrl, title: 'Facebook Video', quality: 'HD' };
+        return { url: videoUrl, title: null, quality: 'HD', hasAudio: true };
       }
     }
   } catch (e) {}
@@ -111,7 +125,7 @@ async function engine5_fdownnet(fbUrl) {
         'Referer': 'https://fdown.net/'
       },
       body: 'URLz=' + encodeURIComponent(fbUrl),
-      signal: AbortSignal.timeout(12000)
+      signal: AbortSignal.timeout(10000)
     });
     if (!res.ok) return null;
     const html = await res.text();
@@ -121,31 +135,36 @@ async function engine5_fdownnet(fbUrl) {
     if (videoUrl && videoUrl.startsWith('http')) {
       return {
         url: videoUrl.replace(/&amp;/g, '&'),
-        title: 'Facebook Video',
-        quality: hdMatch ? 'HD' : 'SD'
+        title: null,
+        quality: hdMatch ? 'HD' : 'SD',
+        hasAudio: true
       };
     }
   } catch (e) {}
   return null;
 }
 
-async function engine6_getfvid(fbUrl) {
+async function engine6_xcasper(fbUrl) {
   try {
-    const res = await fetch('https://en.getfvid.io/', {
+    const res = await fetch('https://apis.xcasper.space/api/downloader/fb', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'Mozilla/5.0',
-        'Referer': 'https://en.getfvid.io/'
-      },
-      body: 'url=' + encodeURIComponent(fbUrl),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: fbUrl }),
       signal: AbortSignal.timeout(10000)
     });
     if (!res.ok) return null;
-    const html = await res.text();
-    const match = html.match(/href="(https?:\/\/[^\"]+?\.mp4[^"]*)"/i) || html.match(/data-url="(https?:\/\/[^"]+)"/i);
-    if (match && match[1]) {
-      return { url: match[1].replace(/&amp;/g, '&'), title: 'Facebook Video', quality: 'HD' };
+    const data = await res.json();
+    const videoUrl = data?.url || data?.download || data?.hd || data?.result?.url || data?.data?.url;
+    if (videoUrl && videoUrl.startsWith('http')) {
+      return {
+        url: videoUrl,
+        title: data?.title || null,
+        description: data?.description || null,
+        author: data?.author || data?.uploader || null,
+        views: data?.views || data?.view_count || null,
+        quality: 'HD',
+        hasAudio: true
+      };
     }
   } catch (e) {}
   return null;
@@ -155,67 +174,44 @@ async function engine7_fdownone(fbUrl) {
   try {
     const res = await fetch('https://fdown.one/download', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0'
-      },
+      headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
       body: JSON.stringify({ url: fbUrl }),
-      signal: AbortSignal.timeout(10000)
+      signal: AbortSignal.timeout(8000)
     });
     if (!res.ok) return null;
     const data = await res.json();
     const videoUrl = data?.url || data?.download || data?.hd || data?.sd || data?.links?.[0]?.url;
     if (videoUrl && videoUrl.startsWith('http')) {
-      return { url: videoUrl, title: data?.title || 'Facebook Video', quality: 'HD' };
+      return { url: videoUrl, title: data?.title || null, quality: 'HD', hasAudio: true };
     }
   } catch (e) {}
   return null;
 }
 
-async function engine8_xcasper(fbUrl) {
-  try {
-    const res = await fetch('https://apis.xcasper.space/api/downloader/fb', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: fbUrl }),
-      signal: AbortSignal.timeout(12000)
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const videoUrl = data?.url || data?.download || data?.hd || data?.result?.url || data?.data?.url;
-    if (videoUrl && videoUrl.startsWith('http')) {
-      return { url: videoUrl, title: data?.title || 'Facebook Video', quality: 'HD' };
-    }
-  } catch (e) {}
-  return null;
-}
-
-// Race all engines - first successful wins (ultra fast)
+// Race all engines - first successful + prefer HD with audio
 async function getBestFacebookVideo(fbUrl) {
   const engines = [
     engine1_fdown,
     engine2_mediasaver,
     engine3_fbdownxyz,
+    engine6_xcasper,
     engine4_snapsave,
     engine5_fdownnet,
-    engine6_getfvid,
-    engine7_fdownone,
-    engine8_xcasper
+    engine7_fdownone
   ];
 
-  // Run all in parallel, take first successful result
-  const results = await Promise.allSettled(
-    engines.map(fn => fn(fbUrl))
-  );
+  const results = await Promise.allSettled(engines.map(fn => fn(fbUrl)));
 
-  // Prefer HD over SD
   let best = null;
   for (const r of results) {
     if (r.status === 'fulfilled' && r.value && r.value.url) {
       if (!best) {
         best = r.value;
-      } else if (r.value.quality === 'HD' && best.quality !== 'HD') {
-        best = r.value;
+      } else {
+        // Prefer HD + has title/description
+        const score = (r.value.quality === 'HD' ? 2 : 0) + (r.value.title ? 1 : 0) + (r.value.hasAudio ? 1 : 0);
+        const bestScore = (best.quality === 'HD' ? 2 : 0) + (best.title ? 1 : 0) + (best.hasAudio ? 1 : 0);
+        if (score > bestScore) best = r.value;
       }
     }
   }
@@ -224,21 +220,39 @@ async function getBestFacebookVideo(fbUrl) {
 
 function formatNumber(num) {
   if (!num) return null;
-  const n = Number(num);
-  if (isNaN(n)) return null;
+  const n = Number(String(num).replace(/[^0-9.]/g, ''));
+  if (isNaN(n) || n === 0) return null;
   if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
   if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
-  return String(n);
+  return String(Math.floor(n));
 }
 
 function buildCaption(data) {
-  const title = data.title || 'Facebook Video';
+  let caption = '';
+
+  // 1. Title
+  if (data.title) {
+    caption += '🎬 **' + data.title + '**\n\n';
+  }
+
+  // 2. Description / body text
+  if (data.description) {
+    let desc = data.description.trim();
+    if (desc.length > 180) desc = desc.substring(0, 180) + '...';
+    caption += desc + '\n\n';
+  }
+
+  // 3. Author
+  if (data.author) {
+    caption += '👤 **তৈরি করেছেন:** ' + data.author + '\n';
+  }
+
+  caption += '━━━━━━━━━━━━━━━━━━━━\n';
+
+  // 4. Stats
   const views = formatNumber(data.views);
   const reactions = formatNumber(data.reactions);
   const comments = formatNumber(data.comments);
-
-  let caption = '🎬 **' + title + '**\n';
-  caption += '━━━━━━━━━━━━━━━━━━━━\n';
 
   if (views) caption += '👁 **Views:** ' + views + '\n';
   if (reactions) caption += '❤️ **Reactions:** ' + reactions + '\n';
@@ -261,7 +275,7 @@ async function handleFacebookDownload(client, chatId, text) {
   const fbUrl = match[0];
 
   const statusMsg = await client.sendMessage(chatId, {
-    message: '⏳ **Facebook ভিডিও প্রস্তুত হচ্ছে...**\nসুপার ফাস্ট মোড চালু ⚡',
+    message: '⏳ **ভিডিও আসছে...** ⚡ সুপার ফাস্ট মোড',
     parseMode: 'md',
   });
 
@@ -272,9 +286,14 @@ async function handleFacebookDownload(client, chatId, text) {
       throw new Error('No video found');
     }
 
+    // If no title from API, try extract from original link text or keep generic
+    if (!videoData.title) {
+      videoData.title = 'Facebook Video';
+    }
+
     const captionText = buildCaption(videoData);
 
-    // Fast path: send video URL directly to Telegram
+    // Fast path - send video URL directly (fastest)
     const tgRes = await fetch('https://api.telegram.org/bot' + BOT_TOKEN + '/sendVideo', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -285,7 +304,7 @@ async function handleFacebookDownload(client, chatId, text) {
         parse_mode: 'Markdown',
         supports_streaming: true
       }),
-      signal: AbortSignal.timeout(25000)
+      signal: AbortSignal.timeout(20000)
     });
 
     const tgData = await tgRes.json();
@@ -299,7 +318,7 @@ async function handleFacebookDownload(client, chatId, text) {
     const tempFilePath = path.join('/tmp', 'fb_' + Date.now() + '.mp4');
     const videoRes = await fetch(videoData.url, {
       headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(45000)
+      signal: AbortSignal.timeout(40000)
     });
 
     if (!videoRes.ok) throw new Error('Download failed');
