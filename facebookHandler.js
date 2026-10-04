@@ -5,10 +5,9 @@ const { Readable } = require('stream');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 
-// ১. MediaSaver free API
 async function getFromMediaSaver(fbUrl) {
   try {
-    const apiUrl = `https://mediasaver.link/api/?url=${encodeURIComponent(fbUrl)}`;
+    const apiUrl = 'https://mediasaver.link/api/?url=' + encodeURIComponent(fbUrl);
     const res = await fetch(apiUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
       signal: AbortSignal.timeout(10000)
@@ -29,10 +28,9 @@ async function getFromMediaSaver(fbUrl) {
   return null;
 }
 
-// ২. Alternative free endpoint
 async function getFromAlternative(fbUrl) {
   try {
-    const apiUrl = `https://api.fbdown.xyz/api?url=${encodeURIComponent(fbUrl)}`;
+    const apiUrl = 'https://api.fbdown.xyz/api?url=' + encodeURIComponent(fbUrl);
     const res = await fetch(apiUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0' },
       signal: AbortSignal.timeout(8000)
@@ -53,7 +51,6 @@ async function getFromAlternative(fbUrl) {
   return null;
 }
 
-// ৩. Page scrape fallback (for some public videos)
 async function getFromPageScrape(fbUrl) {
   try {
     const res = await fetch(fbUrl, {
@@ -118,15 +115,16 @@ async function handleFacebookDownload(client, chatId, text) {
     }
 
     const title = videoData.title || 'Facebook Video';
+    const captionText = '🎬 **' + title + '**\n\n👤 **সোর্স:** Facebook\n✨ **কোয়ালিটি:** Best Available';
 
     // Telegram-এ সরাসরি পাঠানোর চেষ্টা
-    const tgRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`, {
+    const tgRes = await fetch('https://api.telegram.org/bot' + BOT_TOKEN + '/sendVideo', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: String(chatId),
         video: videoData.url,
-        caption: `🎬 **${title}**\n\n👤 **সোর্স:** Facebook\n✨ **কোয়ালিটি:** Best Available',
+        caption: captionText,
         parse_mode: 'Markdown',
         supports_streaming: true
       }),
@@ -141,7 +139,7 @@ async function handleFacebookDownload(client, chatId, text) {
     }
 
     // ব্যাকআপ: লোকাল ডাউনলোড করে পাঠানো
-    const tempFilePath = path.join('/tmp', `fb_${Date.now()}.mp4`);
+    const tempFilePath = path.join('/tmp', 'fb_' + Date.now() + '.mp4');
     const videoRes = await fetch(videoData.url, {
       headers: { 'User-Agent': 'Mozilla/5.0' },
       signal: AbortSignal.timeout(30000)
@@ -154,7 +152,7 @@ async function handleFacebookDownload(client, chatId, text) {
 
     await client.sendFile(chatId, {
       file: tempFilePath,
-      caption: `🎬 **${title}**\n\n👤 **সোর্স:** Facebook\n✨ **কোয়ালিটি:** Best Available',
+      caption: captionText,
       supportsStreaming: true,
     });
 
