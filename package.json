@@ -11,6 +11,7 @@
   "dependencies": {
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "telegram": "^2.22.2"
+    "telegram": "^2.22.2",
+    "youtube-dl-exec": "^3.0.0"
   }
 }
