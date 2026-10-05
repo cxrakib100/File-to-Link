@@ -12,7 +12,7 @@ try {
   gplay = null;
 }
 
-// অ্যাপ সার্চ করার বুলেটপ্রুফ ফাংশন (লাইব্রেরি ফেইল করলেও ব্যাকআপ সার্চ করবে)
+// অ্যাপ সার্চ করার স্মার্ট ফাংশন
 async function searchApp(term) {
   if (gplay && typeof gplay.search === 'function') {
     try {
@@ -23,7 +23,7 @@ async function searchApp(term) {
     } catch (e) {}
   }
 
-  // সরাসরি প্লে স্টোর থেকে সার্চ রেজাল্ট বের করার বিকল্প সিস্টেম
+  // সরাসরি প্লে স্টোর ওয়েব থেকে ব্যাকআপ সার্চ
   try {
     const searchUrl = `https://play.google.com/store/search?q=${encodeURIComponent(term)}&c=apps&hl=en`;
     const res = await axios.get(searchUrl, {
@@ -38,6 +38,29 @@ async function searchApp(term) {
     }
   } catch (err) {}
 
+  return null;
+}
+
+// Aptoide API ব্যাকআপ ইঞ্জিন (সরাসরি আনরেস্ট্রিক্টেড সিডিএন)
+async function getAptoideDownload(packageId) {
+  try {
+    const res = await axios.get(`https://ws75.aptoide.com/api/7/apps/search?query=${packageId}&limit=1`, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      timeout: 10000
+    });
+    const list = res.data?.datalist?.list;
+    if (list && list.length > 0) {
+      const match = list.find(item => item.package === packageId) || list[0];
+      if (match && match.file && match.file.path) {
+        return {
+          url: match.file.path,
+          name: match.name,
+          version: match.file.vername || 'Latest',
+          filesize: match.file.filesize
+        };
+      }
+    }
+  } catch (e) {}
   return null;
 }
 
@@ -57,7 +80,7 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
 
     const cleanInput = inputQuery.trim();
 
-    // ১. লিংক থেকে Package ID খোঁজা
+    // ১. লিংক থেকে Package ID বের করা
     const linkMatch = cleanInput.match(/id=([a-zA-Z0-9._]+)/);
     if (linkMatch) {
       appId = linkMatch[1];
@@ -65,7 +88,7 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
       appId = cleanInput;
     }
 
-    // ২. নাম বা লিংক প্রসেসিং
+    // ২. নাম বা লিংক অনুযায়ী অ্যাপ চিহ্নিত করা
     if (!appId) {
       const found = await searchApp(cleanInput);
       if (!found) {
@@ -82,7 +105,6 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
       appTitle = appId;
     }
 
-    // অ্যাপ ডিটেইলস সংগ্রহ
     if (gplay && typeof gplay.app === 'function') {
       try {
         const details = await gplay.app({ appId });
@@ -93,11 +115,11 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
 
     await client.editMessage(chatId, {
       message: statusMsg.id,
-      text: `📦 <b>অ্যাপ:</b> ${appTitle}\n🆔 <code>${appId}</code>\n⏳ <b>প্লে স্টোর থেকে লেটেস্ট ফাইল ডাউনলোড হচ্ছে...</b>`,
+      text: `📦 <b>অ্যাপ:</b> ${appTitle}\n🆔 <code>${appId}</code>\n⏳ <b>লেটেস্ট ফাইল ডাউনলোড করা হচ্ছে...</b>`,
       parseMode: 'html'
     });
 
-    // ৩. সাধারণ APK ও স্প্লিট XAPK উভয় ফরম্যাটের লিংক
+    // ৩. ইঞ্জিন ১: APKPure CDN ট্রাই করা
     const downloadConfigs = [
       { url: `https://d.apkpure.net/b/XAPK/${appId}?version=latest`, ext: 'xapk' },
       { url: `https://d.apkpure.net/b/APK/${appId}?version=latest`, ext: 'apk' },
@@ -117,9 +139,10 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
           url: item.url,
           responseType: 'stream',
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Referer': 'https://apkpure.com/'
           },
-          timeout: 60000,
+          timeout: 45000,
           maxRedirects: 10
         });
 
@@ -138,7 +161,7 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
         });
 
         const stats = fs.statSync(candidatePath);
-        if (stats.size > 1024 * 1024) { // ১ মেগাবাইটের বেশি ফাইল নিশ্চিত করা
+        if (stats.size > 1024 * 1024) {
           tempFilePath = candidatePath;
           finalExt = item.ext;
           downloaded = true;
@@ -151,10 +174,43 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
       }
     }
 
+    // ৪. ইঞ্জিন ২ (ব্যাকআপ): যদি ইঞ্জিন ১-এ না পায়, Aptoide থেকে চেষ্টা করা
+    if (!downloaded) {
+      const aptoideApp = await getAptoideDownload(appId);
+      if (aptoideApp && aptoideApp.url) {
+        const candidatePath = path.join(os.tmpdir(), `${appId}_${Date.now()}.apk`);
+        try {
+          const writer = fs.createWriteStream(candidatePath);
+          const response = await axios({
+            method: 'GET',
+            url: aptoideApp.url,
+            responseType: 'stream',
+            headers: { 'User-Agent': 'Mozilla/5.0' },
+            timeout: 60000
+          });
+
+          response.data.pipe(writer);
+          await new Promise((resolve, reject) => {
+            writer.on('finish', resolve);
+            writer.on('error', reject);
+          });
+
+          if (fs.existsSync(candidatePath) && fs.statSync(candidatePath).size > 1024 * 1024) {
+            tempFilePath = candidatePath;
+            finalExt = 'apk';
+            downloaded = true;
+            if (aptoideApp.version) appVersion = aptoideApp.version;
+          }
+        } catch (e) {
+          if (fs.existsSync(candidatePath)) fs.unlinkSync(candidatePath);
+        }
+      }
+    }
+
     if (!downloaded || !fs.existsSync(tempFilePath)) {
       if (statusMsg) await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
       await client.sendMessage(chatId, {
-        message: '⚠️ <b>ডাউনলোড ব্যর্থ হয়েছে!</b> অ্যাপটি পেইড অথবা প্লে স্টোর থেকে রিমুভ করা হয়েছে।',
+        message: '⚠️ <b>ডাউনলোড ব্যর্থ হয়েছে!</b> অ্যাপটি কোনো আন্তর্জাতিক সিডিএন-এ পাওয়া যায়নি (পেইড অথবা রিজিয়ন রেস্ট্রিক্টেড হতে পারে)।',
         parseMode: 'html'
       });
       return;
@@ -177,10 +233,10 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
 💾 <b>সাইজ:</b> ${fileSizeMB} MB
 📁 <b>ফরম্যাট:</b> ${isXapk ? 'XAPK (Split APK)' : 'APK'}
 ✅ <b>অফিসিয়াল লেটেস্ট ভার্সন</b>
-${isXapk ? '💡 <i>(টিপস: এটি স্প্লিট অ্যাপ, ফোনে ইনস্টল করতে "XAPK Installer" বা "SAI" অ্যাপ ব্যবহার করুন)</i>' : ''}
+${isXapk ? '💡 <i>(টিপস: এটি স্প্লিট অ্যাপ, ইনস্টল করতে "XAPK Installer" বা "SAI" অ্যাপ ব্যবহার করুন)</i>' : ''}
 ━━━━━━━━━━━━━━━━━━━━━━`;
 
-    // ৪. টেলিগ্রামে আল্ট্রা-ফাস্ট আপলোড
+    // ৫. টেলিগ্রামে ফাইল পাঠানো
     await client.sendFile(chatId, {
       file: tempFilePath,
       caption: caption,
