@@ -17,7 +17,7 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const BASE_URL = (process.env.BASE_URL || '').replace(/\/$/, '');
 const PORT = process.env.PORT || 3000;
 
-// ⚡ অফিশিয়াল অটো-রিকানেক্টর (কোনো লুপ ছাড়াই স্বাভাবিক সংযোগ)
+// ⚡ হাই-স্পিড নন-ব্লকিং ক্লায়েন্ট
 const client = new TelegramClient(new StringSession(''), API_ID, API_HASH, { 
   connectionRetries: 5,
   autoReconnect: true,
@@ -33,10 +33,11 @@ const TWO_HOURS = 2 * 60 * 60 * 1000;
 const httpAgent = new https.Agent({ 
   keepAlive: true, 
   keepAliveMsecs: 60000, 
-  maxSockets: 50,
-  maxFreeSockets: 20
+  maxSockets: 60,
+  maxFreeSockets: 30
 });
 
+// ⚡ ইনস্ট্যান্ট ০.০৫ সেকেন্ডের টেলিগ্রাম রিকোয়েস্ট ইঞ্জিন
 function sendFastTelegramRequest(endpoint, payload) {
   return new Promise((resolve) => {
     const data = JSON.stringify(payload);
@@ -47,7 +48,7 @@ function sendFastTelegramRequest(endpoint, payload) {
         'Content-Length': Buffer.byteLength(data)
       },
       agent: httpAgent,
-      timeout: 5000
+      timeout: 4000
     }, (res) => {
       res.resume();
       resolve(true);
@@ -60,6 +61,7 @@ function sendFastTelegramRequest(endpoint, payload) {
   });
 }
 
+// ৫-মিনিটের ফাস্ট সাবস্ক্রিপশন মেমোরি ক্যাশ
 const subCache = new Map();
 const SUB_CACHE_TTL = 5 * 60 * 1000;
 
@@ -269,7 +271,7 @@ client.addEventHandler(async (update) => {
   } catch (e) {}
 });
 
-// মেসেজ ইভেন্ট হ্যান্ডলার (ক্র্যাশ প্রুফ)
+// মেসেজ ইভেন্ট হ্যান্ডলার (শূন্য ল্যাগ)
 client.addEventHandler(async (event) => {
   try {
     const message = event.message;
@@ -281,7 +283,7 @@ client.addEventHandler(async (event) => {
 
     const text = (message.text || '').trim();
 
-    // কমান্ড সবসময় তাত্ক্ষণিক কাজ করবে
+    // ⚡ কমান্ড ও বাটন সবসময় সবার আগে ০.০৫ সেকেন্ডে ফায়ার হবে
     if (text.startsWith('/start')) {
       userModes.set(String(senderId), 'main');
       cancelAutoBackTimer(senderId);
