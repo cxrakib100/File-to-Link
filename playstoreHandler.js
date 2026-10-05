@@ -5,10 +5,6 @@ const axios = require('axios');
 const AdmZip = require('adm-zip');
 const { Api } = require('telegram');
 
-// গিটহাব সিক্রেট স্ক্যানিং বাইপাস করে সরাসরি এআই কি ইনিশিয়ালাইজেশন
-const INTERNAL_AI_KEY = ['AQ.', 'Ab8RN6IjQmEtosmrEWg', '0djJdtRPPREH9vIAasR3K1Ez0dwItgA'].join('');
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || INTERNAL_AI_KEY;
-
 let gplay = null;
 try {
   const gp = require('google-play-scraper');
@@ -16,8 +12,6 @@ try {
 } catch (e) {
   gplay = null;
 }
-
-let lastAiError = null;
 
 // ১. বাংলা ও ইংরেজি স্মার্ট গ্লোবাল সার্চ (কান্ট্রি লক বাইপাস)
 async function searchPlayStoreGlobal(query) {
@@ -67,9 +61,8 @@ async function getAptoideDownload(packageId) {
   return null;
 }
 
-// ৩. সুপার এআই ভিশন (লোগো ও স্ক্রিনশট রিডার)
+// ৩. চাবিহীন পাওয়ারফুল ওপেন এআই ভিশন (কোনো API Key ছাড়াই লোগো ও স্ক্রিনশট স্ক্যানার)
 async function identifyAppFromPhoto(buffer) {
-  lastAiError = null;
   let mimeType = 'image/jpeg';
   if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
     mimeType = 'image/png';
@@ -78,70 +71,35 @@ async function identifyAppFromPhoto(buffer) {
   }
 
   const base64Data = buffer.toString('base64');
-  const payload = {
-    contents: [
+  const dataUrl = `data:${mimeType};base64,${base64Data}`;
+
+  const prompt = "This image is an Android app logo, icon, or Google Play screenshot. Identify the exact app name (e.g. Nagad, WhatsApp, bKash). Output strictly ONLY the plain single app name, nothing else.";
+
+  // ওপেন-ভিশন হাই-স্পিড এআই গেটওয়ে
+  try {
+    const response = await axios.post(
+      'https://text.pollinations.ai/',
       {
-        parts: [
+        messages: [
           {
-            inlineData: {
-              mimeType: mimeType,
-              data: base64Data
-            }
-          },
-          {
-            text: "This image contains an Android app logo, icon, or screenshot. Identify the app. Reply strictly ONLY with the official app name (for example: Nagad or bKash). Do not write any other explanation."
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              { type: 'image_url', image_url: { url: dataUrl } }
+            ]
           }
-        ]
-      }
-    ]
-  };
+        ],
+        model: 'openai'
+      },
+      { headers: { 'Content-Type': 'application/json' }, timeout: 25000 }
+    );
 
-  const models = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash'];
-
-  for (const model of models) {
-    try {
-      const response = await axios.post(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
-        payload,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': GEMINI_API_KEY
-          },
-          timeout: 25000
-        }
-      );
-
-      const raw = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (raw) {
-        const clean = raw.split('\n')[0].replace(/[`*"'#]/g, '').trim();
-        if (clean.length > 1) return clean;
-      }
-    } catch (err) {
-      lastAiError = err.response?.data?.error?.message || err.message;
-      try {
-        const response2 = await axios.post(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-          payload,
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${GEMINI_API_KEY}`
-            },
-            timeout: 25000
-          }
-        );
-
-        const raw2 = response2.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (raw2) {
-          const clean2 = raw2.split('\n')[0].replace(/[`*"'#]/g, '').trim();
-          if (clean2.length > 1) return clean2;
-        }
-      } catch (err2) {
-        lastAiError = err2.response?.data?.error?.message || err2.message;
-      }
+    const raw = typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
+    if (raw) {
+      const clean = raw.split('\n')[0].replace(/[`*"'#]/g, '').trim();
+      if (clean.length > 1 && !clean.includes('error')) return clean;
     }
-  }
+  } catch (err) {}
 
   return null;
 }
@@ -287,7 +245,7 @@ async function executeApkDownload(client, chatId, appId) {
     if (!downloaded || !fs.existsSync(tempFilePath)) {
       if (statusMsg) await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
       await client.sendMessage(chatId, {
-        message: '⚠️ <b>ডাউনলোড ব্যর্থ হয়েছে!</b> অ্যাপটি পেইড অথবা গুগল প্লে সার্ভারে বর্তমানে লক করা রয়েছে।',
+        message: '⚠️ <b>ডাউনলোড ব্যর্থ হয়েছে!</b> অ্যাপটি পেইড অথবা প্লে স্টোর থেকে রিমুভ করা হয়েছে।',
         parseMode: 'html'
       });
       return;
@@ -386,10 +344,9 @@ async function handlePhotoSearch(client, message) {
     const detectedName = await identifyAppFromPhoto(buffer);
 
     if (!detectedName) {
-      const errText = lastAiError ? `\n(কারণ: ${lastAiError})` : '';
       await client.editMessage(chatId, {
         message: status.id,
-        text: `⚠️ <b>ছবি থেকে অ্যাপ সনাক্ত করা যায়নি।${errText}</b>\n\n💡 <i>অনুগ্রহ করে অ্যাপের নাম সরাসরি টাইপ করে পাঠান।</i>`,
+        text: '⚠️ <b>ছবি থেকে অ্যাপ সনাক্ত করা যায়নি। অনুগ্রহ করে অ্যাপের নাম সরাসরি টাইপ করে পাঠান।</b>',
         parseMode: 'html'
       });
       return;
