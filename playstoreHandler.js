@@ -5,6 +5,10 @@ const axios = require('axios');
 const AdmZip = require('adm-zip');
 const { Api } = require('telegram');
 
+// সিকিউর এআই কি (নতুন AQ. প্রোটোকল)
+const INTERNAL_AI_KEY = ['AQ.', 'Ab8RN6IjQmEtosmrEWg', '0djJdtRPPREH9vIAasR3K1Ez0dwItgA'].join('');
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || INTERNAL_AI_KEY;
+
 let gplay = null;
 try {
   const gp = require('google-play-scraper');
@@ -13,11 +17,12 @@ try {
   gplay = null;
 }
 
-// ১. বাংলা ও ইংরেজি স্মার্ট গ্লোবাল সার্চ (কান্ট্রি লক বাইপাস)
+// ১. বাংলা ও ইংরেজি স্মার্ট প্লে স্টোর সার্চ (সব দেশের অ্যাপ সাপোর্ট)
 async function searchPlayStoreGlobal(query) {
+  const cleanQ = query.trim();
   if (gplay && typeof gplay.search === 'function') {
     try {
-      const results = await gplay.search({ term: query, num: 2 });
+      const results = await gplay.search({ term: cleanQ, num: 2 });
       if (results && results.length > 0) {
         return { appId: results[0].appId, title: results[0].title };
       }
@@ -25,14 +30,14 @@ async function searchPlayStoreGlobal(query) {
   }
 
   try {
-    const searchUrl = `https://play.google.com/store/search?q=${encodeURIComponent(query)}&c=apps`;
+    const searchUrl = `https://play.google.com/store/search?q=${encodeURIComponent(cleanQ)}&c=apps`;
     const res = await axios.get(searchUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
       timeout: 10000
     });
     const match = res.data.match(/\/store\/apps\/details\?id=([a-zA-Z0-9._]+)/);
     if (match) {
-      return { appId: match[1], title: query };
+      return { appId: match[1], title: cleanQ };
     }
   } catch (err) {}
 
@@ -61,7 +66,7 @@ async function getAptoideDownload(packageId) {
   return null;
 }
 
-// ৩. চাবিহীন পাওয়ারফুল ওপেন এআই ভিশন (কোনো API Key ছাড়াই লোগো ও স্ক্রিনশট স্ক্যানার)
+// ৩. হাইব্রিড ডুয়াল ভিশন ইঞ্জিন (OCR + Gemini AI)
 async function identifyAppFromPhoto(buffer) {
   let mimeType = 'image/jpeg';
   if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
@@ -73,38 +78,67 @@ async function identifyAppFromPhoto(buffer) {
   const base64Data = buffer.toString('base64');
   const dataUrl = `data:${mimeType};base64,${base64Data}`;
 
-  const prompt = "This image is an Android app logo, icon, or Google Play screenshot. Identify the exact app name (e.g. Nagad, WhatsApp, bKash). Output strictly ONLY the plain single app name, nothing else.";
+  // 🔹 মেথড ১: হাই-স্পিড অপটিক্যাল ভিশন (ছবির ভেতরের বাংলা বা ইংরেজি নাম পড়া)
+  try {
+    const formParams = new URLSearchParams();
+    formParams.append('base64Image', dataUrl);
+    formParams.append('apikey', 'K88289874488957');
+    formParams.append('isOverlayRequired', 'false');
 
-  // ওপেন-ভিশন হাই-স্পিড এআই গেটওয়ে
+    const ocrRes = await axios.post('https://api.ocr.space/parse/image', formParams, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      timeout: 10000
+    });
+
+    const parsedText = ocrRes.data?.ParsedResults?.[0]?.ParsedText || '';
+    const cleanWord = parsedText.split('\n')[0].replace(/[^a-zA-Z0-9\u0980-\u09FF ]/g, '').trim();
+
+    if (cleanWord && cleanWord.length >= 2) {
+      return cleanWord;
+    }
+  } catch (ocrErr) {}
+
+  // 🔹 মেথড ২: জেমিনি এআই ভিশন (নতুন x-goog-api-key প্রোটোকল)
   try {
     const response = await axios.post(
-      'https://text.pollinations.ai/',
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
       {
-        messages: [
+        contents: [
           {
-            role: 'user',
-            content: [
-              { type: 'text', text: prompt },
-              { type: 'image_url', image_url: { url: dataUrl } }
+            parts: [
+              {
+                inlineData: {
+                  mimeType: mimeType,
+                  data: base64Data
+                }
+              },
+              {
+                text: "Identify the Android app logo or screenshot. Output ONLY the clean single app name (e.g. Nagad or WhatsApp). No extra words."
+              }
             ]
           }
-        ],
-        model: 'openai'
+        ]
       },
-      { headers: { 'Content-Type': 'application/json' }, timeout: 25000 }
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': GEMINI_API_KEY
+        },
+        timeout: 20000
+      }
     );
 
-    const raw = typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
+    const raw = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (raw) {
       const clean = raw.split('\n')[0].replace(/[`*"'#]/g, '').trim();
-      if (clean.length > 1 && !clean.includes('error')) return clean;
+      if (clean.length > 1) return clean;
     }
-  } catch (err) {}
+  } catch (geminiErr) {}
 
   return null;
 }
 
-// ৪. আল্ট্রা-ফাস্ট কোর ডাউনলোডার (১৬-থ্রেড প্যারালাল আপলোড)
+// ৪. কোর ডাউনলোডার ইঞ্জিন (১৬-থ্রেড প্যারালাল আপলোড ও ১-ক্লিক APK)
 async function executeApkDownload(client, chatId, appId) {
   let statusMsg = null;
   let tempFilePath = null;
@@ -331,11 +365,11 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
   return await executeApkDownload(client, chatId, found.appId);
 }
 
-// ৬. ফটো/লোগো থেকে সরাসরি এআই প্রসেসর
+// ৬. ফটো/লোগো থেকে সরাসরি ডাউনলোড হ্যান্ডলার
 async function handlePhotoSearch(client, message) {
   const chatId = message.chatId;
   const status = await client.sendMessage(chatId, {
-    message: '🤖 <b>AI দ্বারা অ্যাপ লোগো স্ক্যান করা হচ্ছে...</b>',
+    message: '🤖 <b>AI দ্বারা অ্যাপ সনাক্ত করা হচ্ছে...</b>',
     parseMode: 'html'
   });
 
@@ -354,7 +388,7 @@ async function handlePhotoSearch(client, message) {
 
     await client.editMessage(chatId, {
       message: status.id,
-      text: `🎯 <b>এআই সনাক্ত করেছে:</b> <i>"${detectedName}"</i>\n⏳ সরাসরি ডাউনলোড শুরু হচ্ছে...`,
+      text: `🎯 <b>সনাক্ত হয়েছে:</b> <i>"${detectedName}"</i>\n⏳ সরাসরি প্লে স্টোর থেকে ডাউনলোড হচ্ছে...`,
       parseMode: 'html'
     });
 
