@@ -4,40 +4,39 @@ const os = require('os');
 const axios = require('axios');
 const AdmZip = require('adm-zip');
 const { Api } = require('telegram');
-const { GoogleGenAI } = require('@google/genai');
 
+// ১. গুগল প্লে স্ক্র্যাপার লোডার
 let gplay = null;
 try {
   const gp = require('google-play-scraper');
   gplay = gp.search ? gp : (gp.default || gp);
-} catch (e) {}
+} catch (e) {
+  gplay = null;
+}
 
-// ফ্রি জেমিনি এআই ইনিশিয়ালাইজেশন (লোগো স্ক্যানের জন্য)
-const aiApiKey = process.env.GEMINI_API_KEY || '';
-const ai = aiApiKey ? new GoogleGenAI({ apiKey: aiApiKey }) : null;
-
-// ১. স্মার্ট ও ফাজি সার্চ (একাধিক অ্যাপ খোঁজা)
-async function searchPlayStoreMulti(query) {
+// ২. বাংলা ও ইংরেজি স্মার্ট ফাজি সার্চ
+async function searchPlayStoreSmart(query) {
   let list = [];
   if (gplay && typeof gplay.search === 'function') {
     try {
-      list = await gplay.search({ term: query, num: 5 });
+      list = await gplay.search({ term: query, num: 4 });
     } catch (e) {}
   }
 
-  // লাইব্রেরি মিস করলে সরাসরি প্লে স্টোর থেকে লাইভ রেজাল্ট আনা
+  // স্ক্র্যাপার মিস করলে প্লে স্টোর ওয়েব থেকে সরাসরি স্ক্র্যাপ
   if (!list || list.length === 0) {
     try {
       const res = await axios.get(`https://play.google.com/store/search?q=${encodeURIComponent(query)}&c=apps&hl=bn`, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        timeout: 10000
       });
       const matches = [...res.data.matchAll(/\/store\/apps\/details\?id=([a-zA-Z0-9._]+)/g)];
-      const uniqueIds = [...new Set(matches.map(m => m[1]))].slice(0, 5);
-      
+      const uniqueIds = [...new Set(matches.map(m => m[1]))].slice(0, 4);
+
       for (const id of uniqueIds) {
         try {
           const d = await gplay.app({ appId: id });
-          list.push({ appId: id, title: d.title, developer: d.developer, scoreText: d.scoreText || '4.0' });
+          list.push({ appId: id, title: d.title, developer: d.developer, scoreText: d.scoreText || '4.2' });
         } catch (err) {}
       }
     } catch (e) {}
@@ -45,37 +44,50 @@ async function searchPlayStoreMulti(query) {
   return list;
 }
 
-// ২. ছবির লোগো থেকে অ্যাপ চেনার এআই ইঞ্জিন
-async function identifyAppFromPhoto(photoBuffer) {
-  if (!ai) return null;
+// ৩. ছবির লোগো থেকে অ্যাপ চেনার এআই ইঞ্জিন (Gemini AI Vision API)
+async function identifyAppFromPhoto(buffer) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+
   try {
-    const base64Image = photoBuffer.toString('base64');
-    const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { inlineData: { mimeType: 'image/jpeg', data: base64Image } },
-            { text: "Identify the Android app shown in this logo/icon/screenshot. Respond ONLY with the official App Name or Package ID. If it's an old logo, identify which app it originally belonged to." }
-          ]
-        }
-      ]
-    });
-    return response.text ? response.text.trim() : null;
+    const base64Data = buffer.toString('base64');
+    const response = await axios.post(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      {
+        contents: [
+          {
+            parts: [
+              {
+                inline_data: {
+                  mime_type: 'image/jpeg',
+                  data: base64Data
+                }
+              },
+              {
+                text: "Identify the Android app shown in this image or logo. Reply ONLY with the exact app title or Google Play package name (e.g. 'Nagad' or 'com.whatsapp'). If it's an old logo of an app, identify the current name of that app."
+              }
+            ]
+          }
+        ]
+      },
+      { headers: { 'Content-Type': 'application/json' }, timeout: 15000 }
+    );
+
+    const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    return text ? text.trim().replace(/[`*]/g, '') : null;
   } catch (err) {
     return null;
   }
 }
 
-// ৩. কোর ডাউনলোড ও ডেলিভারি ফাংশন
+// ৪. কোর ডাউনলোড ইঞ্জিন (সব ধরনের ডিভাইস কম্প্যাটিবিলিটি সহ)
 async function executeApkDownload(client, chatId, appId) {
   let statusMsg = null;
   let tempFilePath = null;
 
   try {
     statusMsg = await client.sendMessage(chatId, {
-      message: '⏳ <b>অ্যাপের লেটেস্ট ফাইল প্রসেস করা হচ্ছে...</b>',
+      message: '🔍 <b>প্লে স্টোরে লাইভ ডাটা ভেরিফাই হচ্ছে...</b>',
       parseMode: 'html'
     });
 
@@ -87,7 +99,9 @@ async function executeApkDownload(client, chatId, appId) {
       try {
         const details = await gplay.app({ appId });
         appTitle = details.title || appTitle;
-        if (details.version && details.version !== 'Varies with device') appVersion = details.version;
+        if (details.version && details.version !== 'Varies with device') {
+          appVersion = details.version;
+        }
         if (details.updated) {
           const d = new Date(details.updated);
           if (!isNaN(d.getTime())) {
@@ -99,30 +113,28 @@ async function executeApkDownload(client, chatId, appId) {
 
     await client.editMessage(chatId, {
       message: statusMsg.id,
-      text: `📦 <b>অ্যাপ:</b> ${appTitle}\n🆔 <code>${appId}</code>\n⏳ <b>ডিভাইস ইনকম্প্যাটিবিলিটি বাইপাস করে ডাউনলোড হচ্ছে...</b>`,
+      text: `📦 <b>অ্যাপ:</b> ${appTitle}\n🆔 <code>${appId}</code>\n⏳ <b>লেটেস্ট অফিশিয়াল ফাইল ডাউনলোড হচ্ছে...</b>`,
       parseMode: 'html'
     });
 
-    // গ্লোবাল মাল্টি-সিডিএন (ডিভাইস আর্কিটেকচার লক বাইপাস)
+    // গ্লোবাল সিডিএন ক্যাশ-ফ্রি লিংক
     const timestamp = Date.now();
-    const downloadSources = [
-      `https://d.apkpure.net/b/APK/${appId}?version=latest&t=${timestamp}`,
-      `https://d.apkpure.com/b/APK/${appId}?version=latest&t=${timestamp}`,
-      `https://d.apkpure.net/b/XAPK/${appId}?version=latest&t=${timestamp}`,
-      `https://d.apkpure.com/b/XAPK/${appId}?version=latest&t=${timestamp}`
+    const downloadConfigs = [
+      { url: `https://d.apkpure.net/b/APK/${appId}?version=latest&t=${timestamp}`, isXapk: false },
+      { url: `https://d.apkpure.com/b/APK/${appId}?version=latest&t=${timestamp}`, isXapk: false },
+      { url: `https://d.apkpure.net/b/XAPK/${appId}?version=latest&t=${timestamp}`, isXapk: true },
+      { url: `https://d.apkpure.com/b/XAPK/${appId}?version=latest&t=${timestamp}`, isXapk: true }
     ];
 
     let downloaded = false;
 
-    for (const url of downloadSources) {
-      const isXapk = url.includes('/XAPK/');
-      const candidatePath = path.join(os.tmpdir(), `${appId}_${timestamp}.${isXapk ? 'xapk' : 'apk'}`);
-      
+    for (const item of downloadConfigs) {
+      const candidatePath = path.join(os.tmpdir(), `${appId}_${timestamp}.${item.isXapk ? 'xapk' : 'apk'}`);
       try {
         const writer = fs.createWriteStream(candidatePath);
         const response = await axios({
           method: 'GET',
-          url: url,
+          url: item.url,
           responseType: 'stream',
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -146,7 +158,7 @@ async function executeApkDownload(client, chatId, appId) {
 
         if (fs.existsSync(candidatePath) && fs.statSync(candidatePath).size > 1024 * 1024) {
           // XAPK হলে আনজিপ করে আসল .apk বের করা
-          if (isXapk) {
+          if (item.isXapk) {
             try {
               const zip = new AdmZip(candidatePath);
               const zipEntries = zip.getEntries();
@@ -179,7 +191,7 @@ async function executeApkDownload(client, chatId, appId) {
     if (!downloaded || !fs.existsSync(tempFilePath)) {
       if (statusMsg) await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
       await client.sendMessage(chatId, {
-        message: '⚠️ <b>ডাউনলোড ব্যর্থ হয়েছে!</b> অ্যাপটি পেইড অথবা প্লে স্টোরের নিজস্ব সিডিএন-এ সীমাবদ্ধ।',
+        message: '⚠️ <b>ডাউনলোড ব্যর্থ হয়েছে!</b> অ্যাপটি পেইড অথবা প্লে স্টোর থেকে রিমুভ করা হয়েছে।',
         parseMode: 'html'
       });
       return;
@@ -194,6 +206,7 @@ async function executeApkDownload(client, chatId, appId) {
       parseMode: 'html'
     });
 
+    // আপনার চাহিদা মতো একদম এক লাইনের তথ্য
     const caption = 
 `📱 <b>${appTitle}</b>
 ━━━━━━━━━━━━━━━━━━━━━━
@@ -233,11 +246,11 @@ async function executeApkDownload(client, chatId, appId) {
   }
 }
 
-// ৪. ইউজার রিকোয়েস্ট হ্যান্ডলার (নাম, লিংক বা একাধিক তালিকা প্রদর্শন)
+// ৫. স্মার্ট সার্চ ও মাল্টিপল অ্যাপ ডিসপ্লে
 async function handlePlayStoreDownload(client, chatId, inputQuery) {
   const cleanInput = inputQuery.trim();
 
-  // সরাসরি লিংক আসলে কোনো তালিকা ছাড়াই ডাউনলোড
+  // যদি সরাসরি লিংক হয়
   const linkMatch = cleanInput.match(/id=([a-zA-Z0-9._]+)/);
   if (linkMatch) {
     return await executeApkDownload(client, chatId, linkMatch[1]);
@@ -246,47 +259,46 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
     return await executeApkDownload(client, chatId, cleanInput);
   }
 
-  // নাম দিয়ে সার্চ
   const statusMsg = await client.sendMessage(chatId, {
-    message: '🔍 <b>প্লে স্টোরে সার্চ ও যাচাই করা হচ্ছে...</b>',
+    message: '🔍 <b>প্লে স্টোরে অনুসন্ধান করা হচ্ছে...</b>',
     parseMode: 'html'
   });
 
-  const apps = await searchPlayStoreMulti(cleanInput);
+  const apps = await searchPlayStoreSmart(cleanInput);
 
   if (!apps || apps.length === 0) {
     await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
     await client.sendMessage(chatId, {
-      message: '❌ <b>কোনো অ্যাপ খুঁজে পাওয়া যায়নি! অনুগ্রহ করে সঠিক নাম বা লিংক দিন।</b>',
+      message: '❌ <b>প্লে স্টোরে এই নামের কোনো অ্যাপ পাওয়া যায়নি!</b>',
       parseMode: 'html'
     });
     return;
   }
 
-  // যদি একটিই নির্দিষ্ট অ্যাপ পাওয়া যায়, সরাসরি ডাউনলোড
+  // যদি ১টিই অ্যাপ থাকে, সরাসরি ডাউনলোড শুরু
   if (apps.length === 1) {
     await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
     return await executeApkDownload(client, chatId, apps[0].appId);
   }
 
-  // যদি একাধিক অ্যাপ পাওয়া যায়, চমৎকার ইনলাইন বাটন তালিকা পাঠানো
+  // একাধিক অ্যাপ থাকলে বাটন তালিকা তৈরি
   let listText = `🔍 <b>"${cleanInput}" সম্পর্কিত পাওয়া অ্যাপসমূহ:</b>\n`;
   listText += `━━━━━━━━━━━━━━━━━━━━━━\n`;
-  
+
   const buttons = [];
   apps.slice(0, 4).forEach((app, idx) => {
     listText += `<b>${idx + 1}. ${app.title}</b>\n`;
     listText += `🏢 <i>${app.developer || 'Developer'}</i> | ⭐ ${app.scoreText || '4.0'}\n\n`;
-    
+
     buttons.push([
       new Api.KeyboardButtonCallback({
-        text: `📥 ${idx + 1}. ${app.title.substring(0, 25)}`,
+        text: `📥 ${idx + 1}. ${app.title.substring(0, 24)}`,
         data: Buffer.from(`dl_${app.appId.substring(0, 50)}`)
       })
     ]);
   });
 
-  listText += `👇 <b>আপনার কাঙ্ক্ষিত অ্যাপটি বেছে নিতে নিচের বাটনে চাপ দিন:</b>`;
+  listText += `👇 <b>কাঙ্ক্ষিত অ্যাপটি নামাতে নিচের বাটনে চাপ দিন:</b>`;
 
   await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
   await client.sendMessage(chatId, {
@@ -296,7 +308,7 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
   });
 }
 
-// ফটো হ্যান্ডলার
+// ৬. ফটো লোগো সার্চ
 async function handlePhotoSearch(client, message) {
   const chatId = message.chatId;
   const status = await client.sendMessage(chatId, {
@@ -311,7 +323,7 @@ async function handlePhotoSearch(client, message) {
     if (!detectedName) {
       await client.editMessage(chatId, {
         message: status.id,
-        text: '❌ <b>ছবি থেকে কোনো অ্যাপ সনাক্ত করা যায়নি। অনুগ্রহ করে অ্যাপের নামটি টাইপ করুন।</b>',
+        text: '⚠️ <b>ছবি থেকে কোনো অ্যাপ সনাক্ত করা যায়নি। অনুগ্রহ করে অ্যাপের নামটি টাইপ করুন।</b>\n<i>(ছবি দিয়ে এআই স্ক্যানের জন্য Render-এ GEMINI_API_KEY যুক্ত থাকতে হবে)</i>',
         parseMode: 'html'
       });
       return;
@@ -319,7 +331,7 @@ async function handlePhotoSearch(client, message) {
 
     await client.editMessage(chatId, {
       message: status.id,
-      text: `🎯 <b>লোগো সনাক্ত হয়েছে:</b> <i>"${detectedName}"</i>\n🔍 প্লে স্টোর থেকে অ্যাপ সংগ্রহ করা হচ্ছে...`,
+      text: `🎯 <b>লোগো সনাক্ত হয়েছে:</b> <i>"${detectedName}"</i>\n⏳ প্লে স্টোর থেকে অ্যাপ নিয়ে আসা হচ্ছে...`,
       parseMode: 'html'
     });
 
@@ -328,7 +340,7 @@ async function handlePhotoSearch(client, message) {
   } catch (err) {
     await client.editMessage(chatId, {
       message: status.id,
-      text: '⚠️ <b>লোগো স্ক্যান করতে সমস্যা হয়েছে।</b>',
+      text: '⚠️ <b>লোগো স্ক্যান করতে ব্যর্থ হয়েছে।</b>',
       parseMode: 'html'
     });
   }
