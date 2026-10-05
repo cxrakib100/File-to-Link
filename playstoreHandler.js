@@ -13,11 +13,10 @@ try {
   gplay = null;
 }
 
-// ১. বাংলা ও ইংরেজি আল্ট্রা-ফাস্ট প্লে স্টোর সার্চ
+// বাংলা ও ইংরেজি আল্ট্রা-ফাস্ট প্লে স্টোর সার্চ
 async function searchPlayStoreFast(query) {
   const cleanQ = query.trim();
 
-  // প্লে স্টোর লাইব্রেরি দিয়ে দ্রুত অনুসন্ধান
   if (gplay && typeof gplay.search === 'function') {
     try {
       const results = await gplay.search({ term: cleanQ, num: 2, country: 'bd', lang: 'bn' });
@@ -34,7 +33,6 @@ async function searchPlayStoreFast(query) {
     } catch (e) {}
   }
 
-  // লাইব্রেরি মিস করলে সরাসরি প্লে স্টোর ওয়েব স্ক্র্যাপ
   try {
     const searchUrl = `https://play.google.com/store/search?q=${encodeURIComponent(cleanQ)}&c=apps`;
     const res = await axios.get(searchUrl, {
@@ -50,7 +48,7 @@ async function searchPlayStoreFast(query) {
   return null;
 }
 
-// ২. ব্যাকআপ সিডিএন ইঞ্জিন (Aptoide)
+// Aptoide ব্যাকআপ সিডিএন ইঞ্জিন
 async function getAptoideDownload(packageId) {
   try {
     const res = await axios.get(`https://ws75.aptoide.com/api/7/apps/search?query=${packageId}&limit=1`, {
@@ -72,7 +70,7 @@ async function getAptoideDownload(packageId) {
   return null;
 }
 
-// ৩. সুপার-ফাস্ট কোর ডাউনলোডার ইঞ্জিন (১-ক্লিক APK কনভার্সন সহ)
+// কোর ডাউনলোডার ইঞ্জিন (র‍্যাম প্রটেকশন ও নো-হ্যাং অপ্টিমাইজেশন)
 async function executeApkDownload(client, chatId, appId) {
   let statusMsg = null;
   let tempFilePath = null;
@@ -119,7 +117,6 @@ async function executeApkDownload(client, chatId, appId) {
 
     let downloaded = false;
 
-    // ১. প্রথম চেষ্টা: APKPure সিডিএন
     for (const item of downloadConfigs) {
       const candidatePath = path.join(os.tmpdir(), `${appId}_${timestamp}.${item.isXapk ? 'xapk' : 'apk'}`);
       try {
@@ -132,7 +129,7 @@ async function executeApkDownload(client, chatId, appId) {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             'Referer': 'https://apkpure.com/'
           },
-          timeout: 90000,
+          timeout: 60000,
           maxRedirects: 10
         });
 
@@ -150,7 +147,6 @@ async function executeApkDownload(client, chatId, appId) {
 
         const stats = fs.statSync(candidatePath);
         if (stats.size > 1024 * 1024) {
-          // XAPK হলে স্বয়ংক্রিয়ভাবে আনজিপ করে মূল .apk বের করা
           if (item.isXapk) {
             try {
               const zip = new AdmZip(candidatePath);
@@ -181,7 +177,6 @@ async function executeApkDownload(client, chatId, appId) {
       }
     }
 
-    // ২. দ্বিতীয় চেষ্টা: Aptoide ব্যাকআপ
     if (!downloaded) {
       const aptoideApp = await getAptoideDownload(appId);
       if (aptoideApp && aptoideApp.url) {
@@ -193,7 +188,7 @@ async function executeApkDownload(client, chatId, appId) {
             url: aptoideApp.url,
             responseType: 'stream',
             headers: { 'User-Agent': 'Mozilla/5.0' },
-            timeout: 60000
+            timeout: 50000
           });
 
           response.data.pipe(writer);
@@ -241,7 +236,7 @@ async function executeApkDownload(client, chatId, appId) {
 ✅ <b>১-ক্লিক ইনস্টলেবল APK (All Devices Compatible)</b>
 ━━━━━━━━━━━━━━━━━━━━━━`;
 
-    // ১৬-থ্রেডে সুপারফাস্ট টেলিগ্রাম আপলোড
+    // ⚡ ৪-থ্রেড অপ্টিমাইজড আপলোড (যা মেমোরি হ্যাং হওয়া প্রতিরোধ করে)
     await client.sendFile(chatId, {
       file: tempFilePath,
       caption: caption,
@@ -251,7 +246,7 @@ async function executeApkDownload(client, chatId, appId) {
       attributes: [
         new Api.DocumentAttributeFilename({ fileName: cleanFileName })
       ],
-      workers: 16
+      workers: 4
     });
 
     if (statusMsg) await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
@@ -265,17 +260,17 @@ async function executeApkDownload(client, chatId, appId) {
       parseMode: 'html'
     });
   } finally {
+    // ⚡ প্রসেস শেষে মেমোরি তৎক্ষণাৎ ক্লিয়ার
     if (tempFilePath && fs.existsSync(tempFilePath)) {
-      fs.unlink(tempFilePath, () => {});
+      try { fs.unlinkSync(tempFilePath); } catch (e) {}
     }
   }
 }
 
-// ৪. মেইন প্লে স্টোর হ্যান্ডলার (সরাসরি ১-ক্লিকে রেজাল্ট)
+// মেইন প্লে স্টোর হ্যান্ডলার
 async function handlePlayStoreDownload(client, chatId, inputQuery) {
   const cleanInput = inputQuery.trim();
 
-  // সরাসরি লিংক আসলে লিংক থেকে সরাসরি প্যাকেজ আইডি নেওয়া
   const linkMatch = cleanInput.match(/id=([a-zA-Z0-9._]+)/);
   if (linkMatch) {
     return await executeApkDownload(client, chatId, linkMatch[1]);
@@ -289,7 +284,6 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
     parseMode: 'html'
   });
 
-  // নাম দিয়ে অনুসন্ধান (বাংলা অথবা ইংরেজি)
   const found = await searchPlayStoreFast(cleanInput);
 
   if (!found || !found.appId) {
