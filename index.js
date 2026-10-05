@@ -1,490 +1,302 @@
-require('dotenv').config();
-const express = require('express');
-const https = require('https');
-const { TelegramClient, Api } = require('telegram');
-const { StringSession } = require('telegram/sessions');
-const { NewMessage } = require('telegram/events');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const axios = require('axios');
+const AdmZip = require('adm-zip');
+const { Api } = require('telegram');
 
-const { isUserJoined, sendJoinPrompt } = require('./forceSub');
-const { processFileUpload, setupDownloadRoute } = require('./fileHandler');
-const { handleTikTokDownload } = require('./tiktokHandler');
-const { handleFacebookDownload } = require('./facebookHandler');
-const { handlePlayStoreDownload, executeApkDownload, handlePhotoSearch } = require('./playstoreHandler');
-
-const API_ID = Number(process.env.API_ID);
-const API_HASH = process.env.API_HASH;
-const BOT_TOKEN = process.env.BOT_TOKEN;
-const BASE_URL = (process.env.BASE_URL || '').replace(/\/$/, '');
-const PORT = process.env.PORT || 3000;
-
-const client = new TelegramClient(new StringSession(''), API_ID, API_HASH, { 
-  connectionRetries: 20,
-  autoReconnect: true,
-  useWSS: false
-});
-
-const app = express();
-let botUsername = '';
-const userModes = new Map();
-const userTimeouts = new Map();
-const TWO_HOURS = 2 * 60 * 60 * 1000;
-
-// হাই-স্পিড নেটওয়ার্ক কিপ-অ্যালাইভ পুল
-const httpAgent = new https.Agent({ 
-  keepAlive: true, 
-  keepAliveMsecs: 60000, 
-  maxSockets: 100,
-  maxFreeSockets: 30
-});
-
-function sendFastTelegramRequest(endpoint, payload) {
-  return new Promise((resolve) => {
-    const data = JSON.stringify(payload);
-    const req = https.request(`https://api.telegram.org/bot${BOT_TOKEN}/${endpoint}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(data)
-      },
-      agent: httpAgent
-    }, (res) => {
-      res.resume();
-      resolve(true);
-    });
-    req.on('error', () => resolve(false));
-    req.write(data);
-    req.end();
-  });
+let gplay = null;
+try {
+  const gp = require('google-play-scraper');
+  gplay = gp.search ? gp : (gp.default || gp);
+} catch (e) {
+  gplay = null;
 }
 
-const subCache = new Map();
-const SUB_CACHE_TTL = 30 * 1000;
+// বাংলা ও ইংরেজি আল্ট্রা-ফাস্ট প্লে স্টোর সার্চ
+async function searchPlayStoreFast(query) {
+  const cleanQ = query.trim();
 
-async function checkSubWithSpeed(userId) {
-  if (!userId) return false;
-  const userKey = String(userId);
-  const cached = subCache.get(userKey);
-
-  if (cached && (Date.now() - cached.time < SUB_CACHE_TTL)) {
-    return cached.joined;
-  }
-
-  try {
-    const joined = await isUserJoined(client, userId);
-    const isValid = Boolean(joined);
-    subCache.set(userKey, { joined: isValid, time: Date.now() });
-    return isValid;
-  } catch (err) {
-    subCache.set(userKey, { joined: false, time: Date.now() });
-    return false;
-  }
-}
-
-const MAIN_MENU_TEXT = 
-`🏠 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮
-━━━━━━━━━━━━━━━━━━━━━━
-✨ নিচের বাটন থেকে আপনার
-প্রয়োজনীয় সার্ভিসটি বেছে নিন।
-━━━━━━━━━━━━━━━━━━━━━━`;
-
-const FILE_SERVICE_TEXT = 
-`📁 𝐅𝐢𝐥𝐞 𝐭𝐨 𝐋𝐢𝐧𝐤 𝐒𝐞𝐫𝐯𝐢𝐜𝐞
-━━━━━━━━━━━━━━━━━━━━━━
-📥 যেকোনো FILE,  APK,  PDF,  VIDEO
-📦 সর্বোচ্চ ৫০০ MB পর্যন্ত পাঠান।
-
-⚡ 𝐈𝐧𝐬𝐭𝐚𝐧𝐭 𝐃𝐢𝐫𝐞𝐜𝐭 𝐋𝐢𝐧𝐤
-🔗 সাথে সাথেই ১-ক্লিক ডাউনলোড লিংক পাবেন।
-
- 🏠 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮-তে ফিরতে
-'🔙 𝐁𝐚𝐜𝐤 বাটন চাপুন।
-━━━━━━━━━━━━━━━━━━━━━━`;
-
-const TIKTOK_SERVICE_TEXT = 
-`🎬 𝐓𝐢𝐤𝐓𝐨𝐤 𝐕𝐢𝐝𝐞𝐨 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐞𝐫
-━━━━━━━━━━━━━━━━━━━━━━
-📥 TikTok ভিডিওর 🔗 লিংকটি পাঠান।
-
-✨ 𝐖𝐢𝐭𝐡𝐨𝐮𝐭 𝐖𝐚𝐭𝐞𝐫𝐦𝐚𝐫𝐤
-🎥 𝐇𝐢𝐠𝐡-𝐐𝐮𝐚𝐥𝐢𝐭𝐲 𝐕𝐢𝐝𝐞𝐨
-
- 🏠 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮-তে ফিরতে
-'🔙 𝐁𝐚𝐜𝐤 বাটন চাপুন।
-━━━━━━━━━━━━━━━━━━━━━━`;
-
-const FACEBOOK_SERVICE_TEXT = 
-`📘 𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨
-━━━━━━━━━━━━━━━━━━━━━━
-📥 Facebook ভিডিওর 🔗 লিংকটি পাঠান।
-
-✨ পাবলিক ভিডিও সাপোর্ট
-🎥 বেস্ট অ্যাভেইলেবল কোয়ালিটি
-
- 🏠 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮-তে ফিরতে
-'🔙 𝐁𝐚𝐜𝐤 বাটন চাপুন।
-━━━━━━━━━━━━━━━━━━━━━━`;
-
-const PLAYSTORE_SERVICE_TEXT = 
-`📲 𝐏𝐥𝐚𝐲 𝐒𝐭𝐨𝐫𝐞 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐞𝐫
-━━━━━━━━━━━━━━━━━━━━━━
-📥 Play Store অ্যাপের নাম, লিংক বা লোগোর ছবি পাঠান।
-
-⚡ 𝐋𝐚𝐭𝐞𝐬𝐭 𝐔𝐩𝐝𝐚𝐭𝐞 𝐀𝐏𝐊
-📦 সরাসরি ১-ক্লিক ইনস্টলেবল লেটেস্ট ভার্সন।
-
- 🏠 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮-তে ফিরতে
-'🔙 𝐁𝐚𝐜𝐤 বাটন চাপুন।
-━━━━━━━━━━━━━━━━━━━━━━`;
-
-function startAutoBackTimer(chatId, userId) {
-  if (userTimeouts.has(String(userId))) {
-    clearTimeout(userTimeouts.get(String(userId)));
-  }
-  const timer = setTimeout(async () => {
+  if (gplay && typeof gplay.search === 'function') {
     try {
-      const currentMode = userModes.get(String(userId));
-      if (currentMode === 'file' || currentMode === 'tiktok' || currentMode === 'facebook' || currentMode === 'playstore') {
-        userModes.set(String(userId), 'main');
-        userTimeouts.delete(String(userId));
-        await sendMainMenu(chatId, MAIN_MENU_TEXT);
+      const results = await gplay.search({ term: cleanQ, num: 2, country: 'bd', lang: 'bn' });
+      if (results && results.length > 0) {
+        return { appId: results[0].appId, title: results[0].title };
       }
-    } catch (err) {}
-  }, TWO_HOURS);
-  userTimeouts.set(String(userId), timer);
-}
+    } catch (e) {}
 
-function cancelAutoBackTimer(userId) {
-  if (userTimeouts.has(String(userId))) {
-    clearTimeout(userTimeouts.get(String(userId)));
-    userTimeouts.delete(String(userId));
+    try {
+      const results2 = await gplay.search({ term: cleanQ, num: 2, country: 'us', lang: 'en' });
+      if (results2 && results2.length > 0) {
+        return { appId: results2[0].appId, title: results2[0].title };
+      }
+    } catch (e) {}
   }
-}
 
-async function sendMainMenu(chatId, text) {
   try {
-    const cleanId = String(chatId).replace(/[^0-9-]/g, '');
-    await sendFastTelegramRequest('sendMessage', {
-      chat_id: cleanId,
-      text: text,
-      parse_mode: 'Markdown',
-      reply_markup: {
-        keyboard: [
-          [
-            { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "success" },
-            { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }
-          ],
-          [
-            { text: "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" },
-            { text: "📲 𝐏𝐥𝐚𝐲 𝐒𝐭𝐨𝐫𝐞", style: "success" }
-          ],
-          [
-            { text: "𝐒𝐮𝐩𝐩𝐨𝐫𝐭", style: "danger" }
-          ]
-        ],
-        resize_keyboard: true,
-        one_time_keyboard: false
-      }
+    const searchUrl = `https://play.google.com/store/search?q=${encodeURIComponent(cleanQ)}&c=apps`;
+    const res = await axios.get(searchUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      timeout: 8000
     });
+    const match = res.data.match(/\/store\/apps\/details\?id=([a-zA-Z0-9._]+)/);
+    if (match) {
+      return { appId: match[1], title: cleanQ };
+    }
   } catch (err) {}
+
+  return null;
 }
 
-async function sendBackMenu(chatId, text) {
+// Aptoide ব্যাকআপ সিডিএন ইঞ্জিন
+async function getAptoideDownload(packageId) {
   try {
-    const cleanId = String(chatId).replace(/[^0-9-]/g, '');
-    await sendFastTelegramRequest('sendMessage', {
-      chat_id: cleanId,
-      text: text,
-      parse_mode: 'Markdown',
-      reply_markup: {
-        keyboard: [
-          [
-            { text: "🔙 𝐁𝐚𝐜𝐤", style: "danger" }
-          ]
-        ],
-        resize_keyboard: true,
-        one_time_keyboard: false
+    const res = await axios.get(`https://ws75.aptoide.com/api/7/apps/search?query=${packageId}&limit=1`, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      timeout: 8000
+    });
+    const list = res.data?.datalist?.list;
+    if (list && list.length > 0) {
+      const match = list.find(item => item.package === packageId) || list[0];
+      if (match && match.file && match.file.path) {
+        return {
+          url: match.file.path,
+          name: match.name,
+          version: match.file.vername || 'Latest'
+        };
       }
-    });
-  } catch (err) {}
-}
-
-async function hideKeyboardAndLock(chatId) {
-  try {
-    const cleanId = String(chatId).replace(/[^0-9-]/g, '');
-    await sendFastTelegramRequest('sendMessage', {
-      chat_id: cleanId,
-      text: '🔒 **বটের সকল ফিচার ব্যবহার করতে চ্যানেলে জয়েন করা বাধ্যতামূলক!**',
-      parse_mode: 'Markdown',
-      reply_markup: { remove_keyboard: true }
-    });
+    }
   } catch (e) {}
+  return null;
 }
 
-// বাটন ক্লিক ইভেন্ট হ্যান্ডলার
-client.addEventHandler(async (update) => {
-  if (update.className === 'UpdateBotCallbackQuery') {
-    const data = update.data ? update.data.toString() : '';
+// কোর ডাউনলোডার ইঞ্জিন (র‍্যাম প্রটেকশন ও নো-হ্যাং অপ্টিমাইজেশন)
+async function executeApkDownload(client, chatId, appId) {
+  let statusMsg = null;
+  let tempFilePath = null;
 
-    if (data === 'check_sub') {
-      const senderId = update.userId;
-      subCache.delete(String(senderId));
-      const joined = await isUserJoined(client, senderId);
+  try {
+    statusMsg = await client.sendMessage(chatId, {
+      message: '⚡ <b>প্লে স্টোর থেকে লাইভ ডাটা সংগ্রহ করা হচ্ছে...</b>',
+      parseMode: 'html'
+    });
 
-      if (joined) {
-        subCache.set(String(senderId), { joined: true, time: Date.now() });
+    let appTitle = appId;
+    let appVersion = 'Latest';
+    let lastUpdated = 'আজকেই আপডেট করা';
 
-        await client.invoke(
-          new Api.messages.SetBotCallbackAnswer({
-            queryId: update.queryId,
-            message: '✅ ভেরিফিকেশন সফল হয়েছে!',
-            alert: false,
-          })
-        );
+    if (gplay && typeof gplay.app === 'function') {
+      try {
+        const details = await gplay.app({ appId });
+        appTitle = details.title || appTitle;
+        if (details.version && details.version !== 'Varies with device') {
+          appVersion = details.version;
+        }
+        if (details.updated) {
+          const d = new Date(details.updated);
+          if (!isNaN(d.getTime())) {
+            lastUpdated = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+          }
+        }
+      } catch (e) {}
+    }
 
-        const cleanUserId = String(senderId).replace(/[^0-9-]/g, '');
-        await sendFastTelegramRequest('deleteMessage', {
-          chat_id: cleanUserId,
-          message_id: update.msgId
+    await client.editMessage(chatId, {
+      message: statusMsg.id,
+      text: `📦 <b>অ্যাপ:</b> ${appTitle}\n🆔 <code>${appId}</code>\n🚀 <b>সুপার ফাস্ট স্পিডে ডাউনলোড হচ্ছে...</b>`,
+      parseMode: 'html'
+    });
+
+    const timestamp = Date.now();
+    const downloadConfigs = [
+      { url: `https://d.apkpure.net/b/APK/${appId}?version=latest&t=${timestamp}`, isXapk: false },
+      { url: `https://d.apkpure.com/b/APK/${appId}?version=latest&t=${timestamp}`, isXapk: false },
+      { url: `https://d.apkpure.net/b/XAPK/${appId}?version=latest&t=${timestamp}`, isXapk: true },
+      { url: `https://d.apkpure.com/b/XAPK/${appId}?version=latest&t=${timestamp}`, isXapk: true }
+    ];
+
+    let downloaded = false;
+
+    for (const item of downloadConfigs) {
+      const candidatePath = path.join(os.tmpdir(), `${appId}_${timestamp}.${item.isXapk ? 'xapk' : 'apk'}`);
+      try {
+        const writer = fs.createWriteStream(candidatePath, { highWaterMark: 1024 * 1024 });
+        const response = await axios({
+          method: 'GET',
+          url: item.url,
+          responseType: 'stream',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Referer': 'https://apkpure.com/'
+          },
+          timeout: 60000,
+          maxRedirects: 10
         });
 
-        userModes.set(String(senderId), 'main');
-        cancelAutoBackTimer(senderId);
-        await sendMainMenu(senderId, MAIN_MENU_TEXT);
+        if ((response.headers['content-type'] || '').includes('text/html')) {
+          writer.close();
+          if (fs.existsSync(candidatePath)) fs.unlinkSync(candidatePath);
+          continue;
+        }
 
-      } else {
-        subCache.set(String(senderId), { joined: false, time: Date.now() });
-        await client.invoke(
-          new Api.messages.SetBotCallbackAnswer({
-            queryId: update.queryId,
-            message: '⚠️ আপনি এখনো চ্যানেলে জয়েন করেননি!',
-            alert: true,
-          })
-        );
+        response.data.pipe(writer);
+        await new Promise((resolve, reject) => {
+          writer.on('finish', resolve);
+          writer.on('error', reject);
+        });
+
+        const stats = fs.statSync(candidatePath);
+        if (stats.size > 1024 * 1024) {
+          if (item.isXapk) {
+            try {
+              const zip = new AdmZip(candidatePath);
+              const zipEntries = zip.getEntries();
+              const mainApk = zipEntries.find(e => 
+                e.entryName.toLowerCase().endsWith('.apk') && 
+                !e.entryName.toLowerCase().startsWith('config.')
+              ) || zipEntries.find(e => e.entryName.toLowerCase().endsWith('.apk'));
+
+              if (mainApk) {
+                const extracted = path.join(os.tmpdir(), `${appId}_clean_${Date.now()}.apk`);
+                fs.writeFileSync(extracted, mainApk.getData());
+                fs.unlinkSync(candidatePath);
+                tempFilePath = extracted;
+                downloaded = true;
+                break;
+              }
+            } catch (err) {}
+          }
+          tempFilePath = candidatePath;
+          downloaded = true;
+          break;
+        } else {
+          if (fs.existsSync(candidatePath)) fs.unlinkSync(candidatePath);
+        }
+      } catch (err) {
+        if (fs.existsSync(candidatePath)) fs.unlinkSync(candidatePath);
       }
-    } else if (data.startsWith('dl_')) {
-      // ⚡ মাল্টিপল প্লে স্টোর অ্যাপ সিলেকশন বাটন
-      const targetPackage = data.replace('dl_', '');
-      const senderId = update.userId;
-
-      try {
-        await client.invoke(
-          new Api.messages.SetBotCallbackAnswer({
-            queryId: update.queryId,
-            message: '⏳ অ্যাপ ডাউনলোড শুরু হচ্ছে...',
-            alert: false,
-          })
-        );
-        await client.deleteMessages(senderId, [update.msgId], { revoke: true });
-      } catch (e) {}
-
-      await executeApkDownload(client, senderId, targetPackage);
-    }
-  }
-});
-
-// মেসেজ ইভেন্ট হ্যান্ডলার
-client.addEventHandler(async (event) => {
-  const message = event.message;
-  if (!message) return;
-  const senderId = message.senderId;
-  const chatId = message.chatId;
-
-  if (!senderId) return;
-
-  const joined = await checkSubWithSpeed(senderId);
-  if (!joined) {
-    userModes.delete(String(senderId));
-    cancelAutoBackTimer(senderId);
-    await hideKeyboardAndLock(chatId);
-    await sendJoinPrompt(client, chatId);
-    return;
-  }
-
-  const currentMode = userModes.get(String(senderId)) || 'main';
-
-  // ফটো অথবা ফাইল হ্যান্ডলার
-  const hasRealFile = message.media && (message.media.document || message.media.photo);
-  if (hasRealFile) {
-    // 📷 প্লে স্টোর মোডে অ্যাপের ছবি বা স্ক্রিনশট আসলে AI স্ক্যান হবে
-    if (currentMode === 'playstore' && message.media.photo) {
-      startAutoBackTimer(chatId, senderId);
-      await handlePhotoSearch(client, message);
-      return;
     }
 
-    if (currentMode === 'tiktok' || currentMode === 'facebook' || currentMode === 'playstore') {
-      await message.reply({ message: '⚠️ আপনি অন্য মোডে আছেন! ফাইল আপলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤" সিলেক্ট করুন।' });
-      return;
-    }
-    if (currentMode === 'main') {
-      await message.reply({ message: '⚠️ ফাইল আপলোড করতে প্রথমে নিচের মেনু থেকে "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤" বাটনটি বেছে নিন।' });
-      return;
-    }
+    if (!downloaded) {
+      const aptoideApp = await getAptoideDownload(appId);
+      if (aptoideApp && aptoideApp.url) {
+        const candidatePath = path.join(os.tmpdir(), `${appId}_${Date.now()}.apk`);
+        try {
+          const writer = fs.createWriteStream(candidatePath);
+          const response = await axios({
+            method: 'GET',
+            url: aptoideApp.url,
+            responseType: 'stream',
+            headers: { 'User-Agent': 'Mozilla/5.0' },
+            timeout: 50000
+          });
 
-    startAutoBackTimer(chatId, senderId);
-    await processFileUpload(client, message);
-    return;
-  }
+          response.data.pipe(writer);
+          await new Promise((resolve, reject) => {
+            writer.on('finish', resolve);
+            writer.on('error', reject);
+          });
 
-  const text = (message.text || '').trim();
-
-  if (text.startsWith('/start')) {
-    userModes.set(String(senderId), 'main');
-    cancelAutoBackTimer(senderId);
-    await sendMainMenu(chatId, MAIN_MENU_TEXT);
-    return;
-  }
-
-  if (text.includes('File To Link') || text.includes('𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤') || text === '/file') {
-    userModes.set(String(senderId), 'file');
-    startAutoBackTimer(chatId, senderId);
-    await sendBackMenu(chatId, FILE_SERVICE_TEXT);
-    return;
-  }
-
-  if (text.includes('Tiktok Video') || text.includes('𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨') || text === '/tiktok') {
-    userModes.set(String(senderId), 'tiktok');
-    startAutoBackTimer(chatId, senderId);
-    await sendBackMenu(chatId, TIKTOK_SERVICE_TEXT);
-    return;
-  }
-
-  if (text.includes('Facebook Video') || text.includes('𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨') || text.includes('Facebook Download') || text.includes('𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝') || text === '/facebook' || text === '/fb') {
-    userModes.set(String(senderId), 'facebook');
-    startAutoBackTimer(chatId, senderId);
-    await sendBackMenu(chatId, FACEBOOK_SERVICE_TEXT);
-    return;
-  }
-
-  if (text.includes('Play Store') || text.includes('𝐏𝐥𝐚𝐲 𝐒𝐭𝐨𝐫𝐞') || text === '/playstore' || text === '/apk') {
-    userModes.set(String(senderId), 'playstore');
-    startAutoBackTimer(chatId, senderId);
-    await sendBackMenu(chatId, PLAYSTORE_SERVICE_TEXT);
-    return;
-  }
-
-  if (text.includes('Support') || text.includes('𝐒𝐮𝐩𝐩𝐨𝐫𝐭')) {
-    const cleanId = String(chatId).replace(/[^0-9-]/g, '');
-    const prefillText = encodeURIComponent('আসসালামু আলাইকুম ভাইয়া!');
-    const supportUrl = `https://t.me/cx_rakib?text=${prefillText}`;
-
-    await sendFastTelegramRequest('sendMessage', {
-      chat_id: cleanId,
-      text: 
-`🧑‍💻 <b>অ্যাডমিন সাপোর্ট ও সহায়তা কেন্দ্র</b>
-▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-যেকোনো সমস্যা, প্রশ্ন বা সহায়তার জন্য সরাসরি অ্যাডমিনের সাথে যোগাযোগ করতে পারেন।
-
-👇 <b>নিচের বাটনে ক্লিক করে!</b> 👇`,
-      parse_mode: 'HTML',
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: "💬 অ্যাডমিনকে মেসেজ পাঠান", url: supportUrl }
-          ]
-        ]
+          if (fs.existsSync(candidatePath) && fs.statSync(candidatePath).size > 1024 * 1024) {
+            tempFilePath = candidatePath;
+            downloaded = true;
+            if (aptoideApp.version) appVersion = aptoideApp.version;
+          }
+        } catch (e) {
+          if (fs.existsSync(candidatePath)) fs.unlinkSync(candidatePath);
+        }
       }
+    }
+
+    if (!downloaded || !fs.existsSync(tempFilePath)) {
+      if (statusMsg) await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
+      await client.sendMessage(chatId, {
+        message: '⚠️ <b>ডাউনলোড ব্যর্থ হয়েছে!</b> অ্যাপটি পেইড অথবা প্লে স্টোর থেকে রিমুভ করা হয়েছে।',
+        parseMode: 'html'
+      });
+      return;
+    }
+
+    const fileSizeMB = (fs.statSync(tempFilePath).size / (1024 * 1024)).toFixed(2);
+    const cleanFileName = `${appTitle.replace(/[^a-zA-Z0-9_\- ]/g, '').trim() || 'App'}.apk`;
+
+    await client.editMessage(chatId, {
+      message: statusMsg.id,
+      text: `📤 <b>ডাউনলোড সম্পন্ন!</b> (${fileSizeMB} MB)\n🚀 <b>টেলিগ্রামে ফাইল পাঠানো হচ্ছে...</b>`,
+      parseMode: 'html'
+    });
+
+    const caption = 
+`📱 <b>${appTitle}</b>
+━━━━━━━━━━━━━━━━━━━━━━
+🆔 <b>প্যাকেজ:</b> <code>${appId}</code>
+📦 <b>ভার্সন:</b> ${appVersion}
+🗓 <b>লাস্ট আপডেট:</b> ${lastUpdated}
+💾 <b>সাইজ:</b> ${fileSizeMB} MB
+✅ <b>১-ক্লিক ইনস্টলেবল APK (All Devices Compatible)</b>
+━━━━━━━━━━━━━━━━━━━━━━`;
+
+    // ⚡ ৪-থ্রেড অপ্টিমাইজড আপলোড (যা মেমোরি হ্যাং হওয়া প্রতিরোধ করে)
+    await client.sendFile(chatId, {
+      file: tempFilePath,
+      caption: caption,
+      parseMode: 'html',
+      forceDocument: true,
+      mimeType: 'application/vnd.android.package-archive',
+      attributes: [
+        new Api.DocumentAttributeFilename({ fileName: cleanFileName })
+      ],
+      workers: 4
+    });
+
+    if (statusMsg) await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
+
+  } catch (error) {
+    if (statusMsg) {
+      try { await client.deleteMessages(chatId, [statusMsg.id], { revoke: true }); } catch (e) {}
+    }
+    await client.sendMessage(chatId, {
+      message: `❌ <b>ত্রুটি:</b> ${error.message || 'ডাউনলোড সম্পন্ন করা যায়নি'}`,
+      parseMode: 'html'
+    });
+  } finally {
+    // ⚡ প্রসেস শেষে মেমোরি তৎক্ষণাৎ ক্লিয়ার
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
+      try { fs.unlinkSync(tempFilePath); } catch (e) {}
+    }
+  }
+}
+
+// মেইন প্লে স্টোর হ্যান্ডলার
+async function handlePlayStoreDownload(client, chatId, inputQuery) {
+  const cleanInput = inputQuery.trim();
+
+  const linkMatch = cleanInput.match(/id=([a-zA-Z0-9._]+)/);
+  if (linkMatch) {
+    return await executeApkDownload(client, chatId, linkMatch[1]);
+  }
+  if (cleanInput.includes('.') && !cleanInput.includes(' ')) {
+    return await executeApkDownload(client, chatId, cleanInput);
+  }
+
+  const statusMsg = await client.sendMessage(chatId, {
+    message: '🔍 <b>প্লে স্টোরে অনুসন্ধান করা হচ্ছে...</b>',
+    parseMode: 'html'
+  });
+
+  const found = await searchPlayStoreFast(cleanInput);
+
+  if (!found || !found.appId) {
+    await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
+    await client.sendMessage(chatId, {
+      message: '❌ <b>প্লে স্টোরে এই নামের কোনো অ্যাপ খুঁজে পাওয়া যায়নি!</b>',
+      parseMode: 'html'
     });
     return;
   }
 
-  if (text.includes('Back') || text.includes('𝐁𝐚𝐜𝐤') || text === '/back') {
-    userModes.set(String(senderId), 'main');
-    cancelAutoBackTimer(senderId);
-    await sendMainMenu(chatId, MAIN_MENU_TEXT);
-    return;
-  }
+  await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
+  return await executeApkDownload(client, chatId, found.appId);
+}
 
-  // প্লে স্টোর টেক্সট বা লিংক প্রসেসিং
-  const isPlayStoreLink = /(?:play\.google\.com\/store\/apps\/details)/i.test(text);
-  if (isPlayStoreLink || currentMode === 'playstore') {
-    if (isPlayStoreLink && currentMode !== 'playstore' && currentMode !== 'main') {
-      await message.reply({ message: '⚠️ আপনি অন্য মোডে আছেন! অ্যাপ ডাউনলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "📲 𝐏𝐥𝐚𝐲 𝐒𝐭𝐨𝐫𝐞" মোড সিলেক্ট করুন।' });
-      return;
-    }
-    startAutoBackTimer(chatId, senderId);
-    await handlePlayStoreDownload(client, chatId, text);
-    return;
-  }
-
-  // টিকটক প্রসেসিং
-  const isTikTokLink = /(?:tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com)/i.test(text);
-  if (isTikTokLink) {
-    if (currentMode === 'file' || currentMode === 'facebook' || currentMode === 'playstore') {
-      await message.reply({ message: '⚠️ আপনি অন্য মোডে আছেন! টিকটক ভিডিও ডাউনলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" মোড সিলেক্ট করুন।' });
-      return;
-    }
-    if (currentMode === 'main') {
-      await message.reply({ message: '⚠️ টিকটক ভিডিও ডাউনলোড করতে প্রথমে নিচের মেনু থেকে "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" বাটনটি বেছে নিন।' });
-      return;
-    }
-    if (currentMode === 'tiktok') {
-      const allUrls = text.match(/https?:\/\/(?:[a-zA-Z0-9-]+\.)?tiktok\.com\/[^\s]+/gi) || [];
-      const cleanVideoUrl = allUrls.find(u => !u.toLowerCase().includes('tiktoklite')) || allUrls[0];
-      if (cleanVideoUrl) {
-        startAutoBackTimer(chatId, senderId);
-        await handleTikTokDownload(client, chatId, cleanVideoUrl);
-        return;
-      }
-    }
-  }
-
-  // ফেসবুক প্রসেসিং
-  const isFacebookLink = /(?:facebook\.com|fb\.watch|fb\.com)/i.test(text);
-  if (isFacebookLink) {
-    if (currentMode === 'file' || currentMode === 'tiktok' || currentMode === 'playstore') {
-      await message.reply({ message: '⚠️ আপনি অন্য মোডে আছেন! Facebook ভিডিও ডাউনলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" মোড সিলেক্ট করুন।' });
-      return;
-    }
-    if (currentMode === 'main') {
-      await message.reply({ message: '⚠️ Facebook ভিডিও ডাউনলোড করতে প্রথমে নিচের মেনু থেকে "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" বাটনটি বেছে নিন।' });
-      return;
-    }
-    if (currentMode === 'facebook') {
-      startAutoBackTimer(chatId, senderId);
-      await handleFacebookDownload(client, chatId, text);
-      return;
-    }
-  }
-
-  if (currentMode === 'tiktok') {
-    await message.reply({ message: '⚠️ অনুগ্রহ করে একটি সঠিক টিকটক ভিডিওর লিংক পাঠান।' });
-  } else if (currentMode === 'facebook') {
-    await message.reply({ message: '⚠️ অনুগ্রহ করে একটি সঠিক Facebook ভিডিওর লিংক পাঠান।' });
-  } else if (currentMode === 'playstore') {
-    await message.reply({ message: '⚠️ অনুগ্রহ করে অ্যাপের নাম, প্লে স্টোর লিংক অথবা লোগোর ছবি পাঠান।' });
-  } else if (currentMode === 'file') {
-    await message.reply({ message: '⚠️ আপনি "ফাইল টু লিংক" মোডে আছেন! অনুগ্রহ করে যেকোনো ফাইল, ভিডিও, APK বা ডকুমেন্ট সেন্ড করুন।' });
-  } else {
-    await message.reply({ message: '💡 যেকোনো ফাইল সেন্ড করতে বা ভিডিও ডাউনলোড করতে নিচের মেনু বাটন ব্যবহার করুন।' });
-  }
-}, new NewMessage({ incoming: true }));
-
-setupDownloadRoute(app, client);
-
-app.get('/', (req, res) => res.send('Multi-Function Bot Server is Live 24/7!'));
-app.get('/ping', (req, res) => res.status(200).send('PONG_ALIVE'));
-
-setInterval(async () => {
-  try {
-    if (client && client.connected) {
-      await client.invoke(new Api.help.GetConfig());
-    } else if (client && !client.connected) {
-      await client.connect();
-    }
-  } catch (e) {}
-}, 20 * 1000);
-
-setInterval(() => {
-  if (BASE_URL) {
-    fetch(`${BASE_URL}/ping`).catch(() => {});
-  }
-}, 3 * 60 * 1000);
-
-app.listen(PORT, async () => {
-  console.log(`Server listening on port ${PORT}`);
-  await client.start({ botAuthToken: BOT_TOKEN });
-  const me = await client.getMe();
-  botUsername = me.username;
-  console.log(`Bot @${botUsername} started successfully!`);
-});
+module.exports = { handlePlayStoreDownload, executeApkDownload };
