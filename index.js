@@ -9,6 +9,7 @@ const { isUserJoined, sendJoinPrompt } = require('./forceSub');
 const { processFileUpload, setupDownloadRoute } = require('./fileHandler');
 const { handleTikTokDownload } = require('./tiktokHandler');
 const { handleFacebookDownload } = require('./facebookHandler');
+const { handlePlayStoreDownload } = require('./playstoreHandler'); // ⚡ নতুন প্লে স্টোর হ্যান্ডলার
 
 const API_ID = Number(process.env.API_ID);
 const API_HASH = process.env.API_HASH;
@@ -124,6 +125,18 @@ const FACEBOOK_SERVICE_TEXT =
 '🔙 𝐁𝐚𝐜𝐤 বাটন চাপুন।
 ━━━━━━━━━━━━━━━━━━━━━━`;
 
+const PLAYSTORE_SERVICE_TEXT = 
+`📲 𝐏𝐥𝐚𝐲 𝐒𝐭𝐨𝐫𝐞 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐞𝐫
+━━━━━━━━━━━━━━━━━━━━━━
+📥 Play Store অ্যাপের নাম বা লিংক পাঠান।
+
+⚡ 𝐋𝐚𝐭𝐞𝐬𝐭 𝐔𝐩𝐝𝐚𝐭𝐞 𝐀𝐏𝐊
+📦 সরাসরি অফিসিয়াল লেটেস্ট ভার্সন ফাইল পাবেন।
+
+ 🏠 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮-তে ফিরতে
+'🔙 𝐁𝐚𝐜𝐤 বাটন চাপুন।
+━━━━━━━━━━━━━━━━━━━━━━`;
+
 function startAutoBackTimer(chatId, userId) {
   if (userTimeouts.has(String(userId))) {
     clearTimeout(userTimeouts.get(String(userId)));
@@ -131,7 +144,7 @@ function startAutoBackTimer(chatId, userId) {
   const timer = setTimeout(async () => {
     try {
       const currentMode = userModes.get(String(userId));
-      if (currentMode === 'file' || currentMode === 'tiktok' || currentMode === 'facebook') {
+      if (currentMode === 'file' || currentMode === 'tiktok' || currentMode === 'facebook' || currentMode === 'playstore') {
         userModes.set(String(userId), 'main');
         userTimeouts.delete(String(userId));
         await sendMainMenu(chatId, MAIN_MENU_TEXT);
@@ -148,7 +161,7 @@ function cancelAutoBackTimer(userId) {
   }
 }
 
-// 🎨 আপনার রিকোয়ারমেন্ট অনুযায়ী নতুন কালার ও নো-ইমোজি বাটন (৪টি বিন্দুর আইকন সবসময় থাকবে)
+// 🎨 মেনু কিবোর্ডে প্লে স্টোর বাটন অন্তর্ভুক্ত
 async function sendMainMenu(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
@@ -164,11 +177,14 @@ async function sendMainMenu(chatId, text) {
           ],
           [
             { text: "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }, // 🔵 ব্লু
+            { text: "📲 𝐏𝐥𝐚𝐲 𝐒𝐭𝐨𝐫𝐞", style: "success" }    // 🟢 প্লে স্টোর বাটন
+          ],
+          [
             { text: "𝐒𝐮𝐩𝐩𝐨𝐫𝐭", style: "danger" }          // 🔴 লাল
           ]
         ],
         resize_keyboard: true,
-        one_time_keyboard: false // ৪টি বিন্দুর সুইচ আইকন সবসময় থাকবে
+        one_time_keyboard: false
       }
     });
   } catch (err) {}
@@ -271,7 +287,7 @@ client.addEventHandler(async (event) => {
 
   const hasRealFile = message.media && (message.media.document || message.media.photo);
   if (hasRealFile) {
-    if (currentMode === 'tiktok' || currentMode === 'facebook') {
+    if (currentMode === 'tiktok' || currentMode === 'facebook' || currentMode === 'playstore') {
       await message.reply({ message: '⚠️ আপনি অন্য মোডে আছেন! ফাইল আপলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤" সিলেক্ট করুন।' });
       return;
     }
@@ -287,7 +303,7 @@ client.addEventHandler(async (event) => {
 
   const text = (message.text || '').trim();
 
-  // ⚡ সুপার ইনস্ট্যান্ট বাটন রেসপন্স (০.০১ সেকেন্ড স্পিড)
+  // ⚡ সুপার ইনস্ট্যান্ট বাটন রেসপন্স
   if (text.startsWith('/start')) {
     userModes.set(String(senderId), 'main');
     cancelAutoBackTimer(senderId);
@@ -313,6 +329,14 @@ client.addEventHandler(async (event) => {
     userModes.set(String(senderId), 'facebook');
     startAutoBackTimer(chatId, senderId);
     await sendBackMenu(chatId, FACEBOOK_SERVICE_TEXT);
+    return;
+  }
+
+  // ⚡ প্লে স্টোর বাটন কমান্ড
+  if (text.includes('Play Store') || text.includes('𝐏𝐥𝐚𝐲 𝐒𝐭𝐨𝐫𝐞') || text === '/playstore' || text === '/apk') {
+    userModes.set(String(senderId), 'playstore');
+    startAutoBackTimer(chatId, senderId);
+    await sendBackMenu(chatId, PLAYSTORE_SERVICE_TEXT);
     return;
   }
 
@@ -348,10 +372,22 @@ client.addEventHandler(async (event) => {
     return;
   }
 
+  // প্লে স্টোর প্রসেসিং
+  const isPlayStoreLink = /(?:play\.google\.com\/store\/apps\/details)/i.test(text);
+  if (isPlayStoreLink || currentMode === 'playstore') {
+    if (isPlayStoreLink && currentMode !== 'playstore' && currentMode !== 'main') {
+      await message.reply({ message: '⚠️ আপনি অন্য মোডে আছেন! অ্যাপ ডাউনলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "📲 𝐏𝐥𝐚𝐲 𝐒𝐭𝐨𝐫𝐞" মোড সিলেক্ট করুন।' });
+      return;
+    }
+    startAutoBackTimer(chatId, senderId);
+    await handlePlayStoreDownload(client, chatId, text);
+    return;
+  }
+
   // টিকটক প্রসেসিং
   const isTikTokLink = /(?:tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com)/i.test(text);
   if (isTikTokLink) {
-    if (currentMode === 'file' || currentMode === 'facebook') {
+    if (currentMode === 'file' || currentMode === 'facebook' || currentMode === 'playstore') {
       await message.reply({ message: '⚠️ আপনি অন্য মোডে আছেন! টিকটক ভিডিও ডাউনলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" মোড সিলেক্ট করুন।' });
       return;
     }
@@ -373,7 +409,7 @@ client.addEventHandler(async (event) => {
   // ফেসবুক প্রসেসিং
   const isFacebookLink = /(?:facebook\.com|fb\.watch|fb\.com)/i.test(text);
   if (isFacebookLink) {
-    if (currentMode === 'file' || currentMode === 'tiktok') {
+    if (currentMode === 'file' || currentMode === 'tiktok' || currentMode === 'playstore') {
       await message.reply({ message: '⚠️ আপনি অন্য মোডে আছেন! Facebook ভিডিও ডাউনলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨" মোড সিলেক্ট করুন।' });
       return;
     }
@@ -392,6 +428,8 @@ client.addEventHandler(async (event) => {
     await message.reply({ message: '⚠️ অনুগ্রহ করে একটি সঠিক টিকটক ভিডিওর লিংক পাঠান (যেমন: https://vt.tiktok.com/...)' });
   } else if (currentMode === 'facebook') {
     await message.reply({ message: '⚠️ অনুগ্রহ করে একটি সঠিক Facebook ভিডিওর লিংক পাঠান (যেমন: https://www.facebook.com/... বা https://fb.watch/...)' });
+  } else if (currentMode === 'playstore') {
+    await message.reply({ message: '⚠️ অনুগ্রহ করে প্লে স্টোর অ্যাপের নাম অথবা সঠিক লিংক পাঠান।' });
   } else if (currentMode === 'file') {
     await message.reply({ message: '⚠️ আপনি "ফাইল টু লিংক" মোডে আছেন! অনুগ্রহ করে যেকোনো ফাইল, ভিডিও, APK বা ডকুমেন্ট সেন্ড করুন।' });
   } else {
