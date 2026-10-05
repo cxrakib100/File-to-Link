@@ -7,14 +7,12 @@ const AdmZip = require('adm-zip');
 const { pipeline } = require('stream/promises');
 const { Api } = require('telegram');
 
-// ⚡ স্মার্ট মেমোরি ক্যাশ (একবার নামানো ফাইল পরবর্তীতে ০.১ সেকেন্ডে আসবে)
-const apkCache = new Map();
-
+// গ্লোবাল সকেট পুল
 const fastAgent = new https.Agent({
   keepAlive: true,
-  keepAliveMsecs: 30000,
-  maxSockets: 30,
-  maxFreeSockets: 10
+  keepAliveMsecs: 60000,
+  maxSockets: 50,
+  maxFreeSockets: 20
 });
 
 let gplay = null;
@@ -25,7 +23,15 @@ try {
   gplay = null;
 }
 
-// দ্রুততম সার্চ
+// 🎨 লাইভ প্রোগ্রেস বার জেনারেটর
+function createProgressBar(percent) {
+  const totalBars = 12;
+  const filledBars = Math.min(totalBars, Math.max(0, Math.round((percent / 100) * totalBars)));
+  const emptyBars = totalBars - filledBars;
+  return '█'.repeat(filledBars) + '░'.repeat(emptyBars);
+}
+
+// ১. সুপারফাস্ট গ্লোবাল সার্চ
 async function searchPlayStoreFast(query) {
   const cleanQ = query.trim();
 
@@ -55,7 +61,7 @@ async function searchPlayStoreFast(query) {
   return null;
 }
 
-// Aptoide ব্যাকআপ
+// ২. Aptoide ব্যাকআপ সিডিএন
 async function getAptoideDownload(packageId) {
   try {
     const res = await axios.get(`https://ws75.aptoide.com/api/7/apps/search?query=${packageId}&limit=1`, {
@@ -78,25 +84,14 @@ async function getAptoideDownload(packageId) {
   return null;
 }
 
-// কোর ডাউনলোডার ইঞ্জিন
+// ৩. লাইভ গ্রাফিক্যাল ডাউনলোডার ইঞ্জিন
 async function executeApkDownload(client, chatId, appId) {
   let statusMsg = null;
   let tempFilePath = null;
 
   try {
-    // ⚡ ১. ক্যাশ চেক: যদি আগে থেকেই ফাইল পাঠানো হয়ে থাকে, তবে ০.১ সেকেন্ডে পাঠিয়ে দেবে
-    if (apkCache.has(appId)) {
-      const cached = apkCache.get(appId);
-      await client.sendMessage(chatId, {
-        message: cached.caption,
-        file: cached.fileId,
-        parseMode: 'html'
-      });
-      return;
-    }
-
     statusMsg = await client.sendMessage(chatId, {
-      message: '⚡ <b>প্লে স্টোর থেকে ফাইল প্রস্তুত হচ্ছে...</b>',
+      message: '⚡ <b>প্লে স্টোরের সাথে সংযোগ স্থাপন করা হচ্ছে...</b>',
       parseMode: 'html'
     });
 
@@ -104,6 +99,7 @@ async function executeApkDownload(client, chatId, appId) {
     let appVersion = 'Latest';
     let lastUpdated = 'আজকেই আপডেট করা';
 
+    // ব্যাকগ্রাউন্ড মেটাডাটা
     const metadataTask = (async () => {
       if (gplay && typeof gplay.app === 'function') {
         try {
@@ -168,7 +164,6 @@ async function executeApkDownload(client, chatId, appId) {
                 const targetDir = os.tmpdir();
                 zip.extractEntryTo(mainApk, targetDir, false, true);
                 const extractedFile = path.join(targetDir, mainApk.entryName);
-                
                 try { fs.unlinkSync(candidatePath); } catch (e) {}
                 tempFilePath = extractedFile;
                 downloaded = true;
@@ -187,6 +182,7 @@ async function executeApkDownload(client, chatId, appId) {
       }
     }
 
+    // ব্যাকআপ সিডিএন
     if (!downloaded) {
       const aptoideApp = await getAptoideDownload(appId);
       if (aptoideApp && aptoideApp.url) {
@@ -226,8 +222,36 @@ async function executeApkDownload(client, chatId, appId) {
 
     await metadataTask;
 
-    const fileSizeMB = (fs.statSync(tempFilePath).size / (1024 * 1024)).toFixed(2);
+    const totalBytes = fs.statSync(tempFilePath).size;
+    const fileSizeMB = (totalBytes / (1024 * 1024)).toFixed(2);
     const cleanFileName = `${appTitle.replace(/[^a-zA-Z0-9_\- ]/g, '').trim() || 'App'}.apk`;
+
+    // 🎨 লাইভ প্রোগ্রেস ট্র্যাকার সহ টেলিগ্রাম আপলোড
+    let lastEditTime = 0;
+    const progressCallback = async (progress) => {
+      const now = Date.now();
+      // টেলিগ্রামের রেট লিমিট বাঁচাতে প্রতি ৩ সেকেন্ডে গ্রাফ আপডেট হবে
+      if (now - lastEditTime > 3000 && statusMsg) {
+        lastEditTime = now;
+        const percent = Math.min(100, Math.round(progress * 100));
+        const currentMB = ((totalBytes * progress) / (1024 * 1024)).toFixed(1);
+        const bar = createProgressBar(percent);
+
+        try {
+          await client.editMessage(chatId, {
+            message: statusMsg.id,
+            text: 
+`🚀 <b>টেলিগ্রামে ফাইল পাঠানো হচ্ছে...</b>
+━━━━━━━━━━━━━━━━━━━━━━
+📦 <b>${appTitle}</b> (${fileSizeMB} MB)
+<code>[${bar}]</code> <b>${percent}%</b>
+📊 <b>আপলোড:</b> ${currentMB} MB / ${fileSizeMB} MB
+━━━━━━━━━━━━━━━━━━━━━━`,
+            parseMode: 'html'
+          });
+        } catch (err) {}
+      }
+    };
 
     const caption = 
 `📱 <b>${appTitle}</b>
@@ -239,8 +263,7 @@ async function executeApkDownload(client, chatId, appId) {
 ✅ <b>১-ক্লিক ইনস্টলেবল APK (All Devices Compatible)</b>
 ━━━━━━━━━━━━━━━━━━━━━━`;
 
-    // ⚡ টেলিগ্রামে পাঠানো
-    const sentMsg = await client.sendFile(chatId, {
+    await client.sendFile(chatId, {
       file: tempFilePath,
       caption: caption,
       parseMode: 'html',
@@ -249,16 +272,9 @@ async function executeApkDownload(client, chatId, appId) {
       attributes: [
         new Api.DocumentAttributeFilename({ fileName: cleanFileName })
       ],
+      progressCallback: progressCallback,
       workers: 6
     });
-
-    // ⚡ ফাস্ট ডেলিভারির জন্য ক্যাশ সেভ করা
-    if (sentMsg && sentMsg.media) {
-      apkCache.set(appId, {
-        fileId: sentMsg.media,
-        caption: caption
-      });
-    }
 
     if (statusMsg) await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
 
