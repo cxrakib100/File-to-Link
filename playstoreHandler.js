@@ -7,12 +7,11 @@ const AdmZip = require('adm-zip');
 const { pipeline } = require('stream/promises');
 const { Api } = require('telegram');
 
-// গ্লোবাল সকেট পুল
 const fastAgent = new https.Agent({
   keepAlive: true,
-  keepAliveMsecs: 60000,
-  maxSockets: 50,
-  maxFreeSockets: 20
+  keepAliveMsecs: 30000,
+  maxSockets: 30,
+  maxFreeSockets: 10
 });
 
 let gplay = null;
@@ -23,26 +22,31 @@ try {
   gplay = null;
 }
 
-// 🎨 লাইভ প্রোগ্রেস বার জেনারেটর
-function createProgressBar(percent) {
-  const totalBars = 12;
-  const filledBars = Math.min(totalBars, Math.max(0, Math.round((percent / 100) * totalBars)));
-  const emptyBars = totalBars - filledBars;
-  return '█'.repeat(filledBars) + '░'.repeat(emptyBars);
+// লিঙ্ক থেকে একদম নিখুঁত প্যাকেজ আইডি বের করার ক্লিনার
+function extractCleanPackageId(input) {
+  const clean = input.trim();
+  // id=com.xxx.yyy থেকে শুধুমাত্র প্যাকেজ অংশটুকু আলাদা করা
+  const match = clean.match(/[?&]id=([a-zA-Z0-9._]+)/);
+  if (match) return match[1];
+
+  const plainMatch = clean.match(/^([a-zA-Z0-9._]+)$/);
+  if (plainMatch && plainMatch[1].includes('.')) return plainMatch[1];
+
+  return null;
 }
 
-// ১. সুপারফাস্ট গ্লোবাল সার্চ
+// দ্রুততম সার্চ
 async function searchPlayStoreFast(query) {
   const cleanQ = query.trim();
 
   if (gplay && typeof gplay.search === 'function') {
     try {
-      const results = await gplay.search({ term: cleanQ, num: 1, country: 'bd', lang: 'bn' });
+      const results = await gplay.search({ term: cleanQ, num: 1, country: 'us', lang: 'en' });
       if (results && results.length > 0) return { appId: results[0].appId, title: results[0].title };
     } catch (e) {}
 
     try {
-      const results2 = await gplay.search({ term: cleanQ, num: 1, country: 'us', lang: 'en' });
+      const results2 = await gplay.search({ term: cleanQ, num: 1, country: 'bd', lang: 'bn' });
       if (results2 && results2.length > 0) return { appId: results2[0].appId, title: results2[0].title };
     } catch (e) {}
   }
@@ -61,12 +65,12 @@ async function searchPlayStoreFast(query) {
   return null;
 }
 
-// ২. Aptoide ব্যাকআপ সিডিএন
+// Aptoide ব্যাকআপ
 async function getAptoideDownload(packageId) {
   try {
     const res = await axios.get(`https://ws75.aptoide.com/api/7/apps/search?query=${packageId}&limit=1`, {
       headers: { 'User-Agent': 'Mozilla/5.0' },
-      timeout: 5000,
+      timeout: 6000,
       httpsAgent: fastAgent
     });
     const list = res.data?.datalist?.list;
@@ -84,14 +88,14 @@ async function getAptoideDownload(packageId) {
   return null;
 }
 
-// ৩. লাইভ গ্রাফিক্যাল ডাউনলোডার ইঞ্জিন
+// কোর ডাউনলোডার ইঞ্জিন
 async function executeApkDownload(client, chatId, appId) {
   let statusMsg = null;
   let tempFilePath = null;
 
   try {
     statusMsg = await client.sendMessage(chatId, {
-      message: '⚡ <b>প্লে স্টোরের সাথে সংযোগ স্থাপন করা হচ্ছে...</b>',
+      message: '⚡ <b>প্লে স্টোর থেকে ফাইল প্রস্তুত হচ্ছে...</b>',
       parseMode: 'html'
     });
 
@@ -99,7 +103,6 @@ async function executeApkDownload(client, chatId, appId) {
     let appVersion = 'Latest';
     let lastUpdated = 'আজকেই আপডেট করা';
 
-    // ব্যাকগ্রাউন্ড মেটাডাটা
     const metadataTask = (async () => {
       if (gplay && typeof gplay.app === 'function') {
         try {
@@ -117,11 +120,12 @@ async function executeApkDownload(client, chatId, appId) {
     })();
 
     const timestamp = Date.now();
+    // ⚡ মাল্টি-সিডিএন লিংক (XAPK ও সাধারণ APK উভয়ই সক্রিয়)
     const downloadConfigs = [
-      { url: `https://d.apkpure.net/b/APK/${appId}?version=latest&t=${timestamp}`, isXapk: false },
       { url: `https://d.apkpure.net/b/XAPK/${appId}?version=latest&t=${timestamp}`, isXapk: true },
-      { url: `https://d.apkpure.com/b/APK/${appId}?version=latest&t=${timestamp}`, isXapk: false },
-      { url: `https://d.apkpure.com/b/XAPK/${appId}?version=latest&t=${timestamp}`, isXapk: true }
+      { url: `https://d.apkpure.net/b/APK/${appId}?version=latest&t=${timestamp}`, isXapk: false },
+      { url: `https://d.apkpure.com/b/XAPK/${appId}?version=latest&t=${timestamp}`, isXapk: true },
+      { url: `https://d.apkpure.com/b/APK/${appId}?version=latest&t=${timestamp}`, isXapk: false }
     ];
 
     let downloaded = false;
@@ -137,8 +141,8 @@ async function executeApkDownload(client, chatId, appId) {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             'Referer': 'https://apkpure.com/'
           },
-          timeout: 15000,
-          maxRedirects: 6,
+          timeout: 20000,
+          maxRedirects: 8,
           httpsAgent: fastAgent
         });
 
@@ -164,6 +168,7 @@ async function executeApkDownload(client, chatId, appId) {
                 const targetDir = os.tmpdir();
                 zip.extractEntryTo(mainApk, targetDir, false, true);
                 const extractedFile = path.join(targetDir, mainApk.entryName);
+                
                 try { fs.unlinkSync(candidatePath); } catch (e) {}
                 tempFilePath = extractedFile;
                 downloaded = true;
@@ -182,7 +187,6 @@ async function executeApkDownload(client, chatId, appId) {
       }
     }
 
-    // ব্যাকআপ সিডিএন
     if (!downloaded) {
       const aptoideApp = await getAptoideDownload(appId);
       if (aptoideApp && aptoideApp.url) {
@@ -193,7 +197,7 @@ async function executeApkDownload(client, chatId, appId) {
             url: aptoideApp.url,
             responseType: 'stream',
             headers: { 'User-Agent': 'Mozilla/5.0' },
-            timeout: 15000,
+            timeout: 20000,
             httpsAgent: fastAgent
           });
 
@@ -222,36 +226,8 @@ async function executeApkDownload(client, chatId, appId) {
 
     await metadataTask;
 
-    const totalBytes = fs.statSync(tempFilePath).size;
-    const fileSizeMB = (totalBytes / (1024 * 1024)).toFixed(2);
+    const fileSizeMB = (fs.statSync(tempFilePath).size / (1024 * 1024)).toFixed(2);
     const cleanFileName = `${appTitle.replace(/[^a-zA-Z0-9_\- ]/g, '').trim() || 'App'}.apk`;
-
-    // 🎨 লাইভ প্রোগ্রেস ট্র্যাকার সহ টেলিগ্রাম আপলোড
-    let lastEditTime = 0;
-    const progressCallback = async (progress) => {
-      const now = Date.now();
-      // টেলিগ্রামের রেট লিমিট বাঁচাতে প্রতি ৩ সেকেন্ডে গ্রাফ আপডেট হবে
-      if (now - lastEditTime > 3000 && statusMsg) {
-        lastEditTime = now;
-        const percent = Math.min(100, Math.round(progress * 100));
-        const currentMB = ((totalBytes * progress) / (1024 * 1024)).toFixed(1);
-        const bar = createProgressBar(percent);
-
-        try {
-          await client.editMessage(chatId, {
-            message: statusMsg.id,
-            text: 
-`🚀 <b>টেলিগ্রামে ফাইল পাঠানো হচ্ছে...</b>
-━━━━━━━━━━━━━━━━━━━━━━
-📦 <b>${appTitle}</b> (${fileSizeMB} MB)
-<code>[${bar}]</code> <b>${percent}%</b>
-📊 <b>আপলোড:</b> ${currentMB} MB / ${fileSizeMB} MB
-━━━━━━━━━━━━━━━━━━━━━━`,
-            parseMode: 'html'
-          });
-        } catch (err) {}
-      }
-    };
 
     const caption = 
 `📱 <b>${appTitle}</b>
@@ -263,6 +239,7 @@ async function executeApkDownload(client, chatId, appId) {
 ✅ <b>১-ক্লিক ইনস্টলেবল APK (All Devices Compatible)</b>
 ━━━━━━━━━━━━━━━━━━━━━━`;
 
+    // ⚡ ৬-থ্রেড অপ্টিমাইজড টার্বো আপলোড
     await client.sendFile(chatId, {
       file: tempFilePath,
       caption: caption,
@@ -272,7 +249,6 @@ async function executeApkDownload(client, chatId, appId) {
       attributes: [
         new Api.DocumentAttributeFilename({ fileName: cleanFileName })
       ],
-      progressCallback: progressCallback,
       workers: 6
     });
 
@@ -295,18 +271,12 @@ async function executeApkDownload(client, chatId, appId) {
 
 // মেইন হ্যান্ডলার
 async function handlePlayStoreDownload(client, chatId, inputQuery) {
-  const cleanInput = inputQuery.trim();
-
-  const linkMatch = cleanInput.match(/id=([a-zA-Z0-9._]+)/);
-  if (linkMatch) {
-    return await executeApkDownload(client, chatId, linkMatch[1]);
-  }
-  if (cleanInput.includes('.') && !cleanInput.includes(' ')) {
-    return await executeApkDownload(client, chatId, cleanInput);
+  const pkgId = extractCleanPackageId(inputQuery);
+  if (pkgId) {
+    return await executeApkDownload(client, chatId, pkgId);
   }
 
-  const found = await searchPlayStoreFast(cleanInput);
-
+  const found = await searchPlayStoreFast(inputQuery);
   if (!found || !found.appId) {
     await client.sendMessage(chatId, {
       message: '❌ <b>প্লে স্টোরে এই নামের কোনো অ্যাপ খুঁজে পাওয়া যায়নি!</b>',
