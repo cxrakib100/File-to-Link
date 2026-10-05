@@ -4,14 +4,17 @@ const os = require('os');
 const https = require('https');
 const axios = require('axios');
 const AdmZip = require('adm-zip');
+const { pipeline } = require('stream/promises');
 const { Api } = require('telegram');
 
-// ⚡ আল্ট্রা-ফাস্ট সকেট পুল (TCP Handshake বাদে সরাসরি কানেকশন)
+// ⚡ স্মার্ট মেমোরি ক্যাশ (একবার নামানো ফাইল পরবর্তীতে ০.১ সেকেন্ডে আসবে)
+const apkCache = new Map();
+
 const fastAgent = new https.Agent({
   keepAlive: true,
-  keepAliveMsecs: 60000,
-  maxSockets: 50,
-  maxFreeSockets: 20
+  keepAliveMsecs: 30000,
+  maxSockets: 30,
+  maxFreeSockets: 10
 });
 
 let gplay = null;
@@ -22,18 +25,18 @@ try {
   gplay = null;
 }
 
-// ১. সুপারফাস্ট প্লে স্টোর সার্চ (বাংলা ও ইংরেজি)
+// দ্রুততম সার্চ
 async function searchPlayStoreFast(query) {
   const cleanQ = query.trim();
 
   if (gplay && typeof gplay.search === 'function') {
     try {
-      const results = await gplay.search({ term: cleanQ, num: 2, country: 'bd', lang: 'bn' });
+      const results = await gplay.search({ term: cleanQ, num: 1, country: 'bd', lang: 'bn' });
       if (results && results.length > 0) return { appId: results[0].appId, title: results[0].title };
     } catch (e) {}
 
     try {
-      const results2 = await gplay.search({ term: cleanQ, num: 2, country: 'us', lang: 'en' });
+      const results2 = await gplay.search({ term: cleanQ, num: 1, country: 'us', lang: 'en' });
       if (results2 && results2.length > 0) return { appId: results2[0].appId, title: results2[0].title };
     } catch (e) {}
   }
@@ -52,7 +55,7 @@ async function searchPlayStoreFast(query) {
   return null;
 }
 
-// ২. Aptoide ব্যাকআপ সিডিএন
+// Aptoide ব্যাকআপ
 async function getAptoideDownload(packageId) {
   try {
     const res = await axios.get(`https://ws75.aptoide.com/api/7/apps/search?query=${packageId}&limit=1`, {
@@ -75,15 +78,25 @@ async function getAptoideDownload(packageId) {
   return null;
 }
 
-// ৩. রকেট স্পিড কোর ডাউনলোডার ইঞ্জিন (Workers: 12)
+// কোর ডাউনলোডার ইঞ্জিন
 async function executeApkDownload(client, chatId, appId) {
   let statusMsg = null;
   let tempFilePath = null;
 
   try {
-    // তাৎক্ষণিক রেসপন্স
+    // ⚡ ১. ক্যাশ চেক: যদি আগে থেকেই ফাইল পাঠানো হয়ে থাকে, তবে ০.১ সেকেন্ডে পাঠিয়ে দেবে
+    if (apkCache.has(appId)) {
+      const cached = apkCache.get(appId);
+      await client.sendMessage(chatId, {
+        message: cached.caption,
+        file: cached.fileId,
+        parseMode: 'html'
+      });
+      return;
+    }
+
     statusMsg = await client.sendMessage(chatId, {
-      message: '🚀 <b>প্লে স্টোর থেকে রকেট স্পিডে ফাইল প্রসেস হচ্ছে...</b>',
+      message: '⚡ <b>প্লে স্টোর থেকে ফাইল প্রস্তুত হচ্ছে...</b>',
       parseMode: 'html'
     });
 
@@ -91,7 +104,6 @@ async function executeApkDownload(client, chatId, appId) {
     let appVersion = 'Latest';
     let lastUpdated = 'আজকেই আপডেট করা';
 
-    // ⚡ ব্যাকগ্রাউন্ডে মেটাডাটা রিড (সময় সাশ্রয়)
     const metadataTask = (async () => {
       if (gplay && typeof gplay.app === 'function') {
         try {
@@ -118,11 +130,9 @@ async function executeApkDownload(client, chatId, appId) {
 
     let downloaded = false;
 
-    // ১. প্রথম চেষ্টা: APKPure সিডিএন (২ MB বাফারে সরাসরি ডিস্কে লেখা)
     for (const item of downloadConfigs) {
       const candidatePath = path.join(os.tmpdir(), `${appId}_${timestamp}.${item.isXapk ? 'xapk' : 'apk'}`);
       try {
-        const writer = fs.createWriteStream(candidatePath, { highWaterMark: 2 * 1024 * 1024 });
         const response = await axios({
           method: 'GET',
           url: item.url,
@@ -131,22 +141,17 @@ async function executeApkDownload(client, chatId, appId) {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             'Referer': 'https://apkpure.com/'
           },
-          timeout: 40000,
+          timeout: 15000,
           maxRedirects: 6,
           httpsAgent: fastAgent
         });
 
         if ((response.headers['content-type'] || '').includes('text/html')) {
-          writer.close();
-          if (fs.existsSync(candidatePath)) fs.unlinkSync(candidatePath);
           continue;
         }
 
-        response.data.pipe(writer);
-        await new Promise((resolve, reject) => {
-          writer.on('finish', resolve);
-          writer.on('error', reject);
-        });
+        const writer = fs.createWriteStream(candidatePath);
+        await pipeline(response.data, writer);
 
         const stats = fs.statSync(candidatePath);
         if (stats.size > 1024 * 1024) {
@@ -160,10 +165,12 @@ async function executeApkDownload(client, chatId, appId) {
               ) || zipEntries.find(e => e.entryName.toLowerCase().endsWith('.apk'));
 
               if (mainApk) {
-                const extracted = path.join(os.tmpdir(), `${appId}_clean_${Date.now()}.apk`);
-                fs.writeFileSync(extracted, mainApk.getData());
-                fs.unlinkSync(candidatePath);
-                tempFilePath = extracted;
+                const targetDir = os.tmpdir();
+                zip.extractEntryTo(mainApk, targetDir, false, true);
+                const extractedFile = path.join(targetDir, mainApk.entryName);
+                
+                try { fs.unlinkSync(candidatePath); } catch (e) {}
+                tempFilePath = extractedFile;
                 downloaded = true;
                 break;
               }
@@ -173,34 +180,29 @@ async function executeApkDownload(client, chatId, appId) {
           downloaded = true;
           break;
         } else {
-          if (fs.existsSync(candidatePath)) fs.unlinkSync(candidatePath);
+          try { fs.unlinkSync(candidatePath); } catch (e) {}
         }
       } catch (err) {
-        if (fs.existsSync(candidatePath)) fs.unlinkSync(candidatePath);
+        try { if (fs.existsSync(candidatePath)) fs.unlinkSync(candidatePath); } catch (e) {}
       }
     }
 
-    // ২. ব্যাকআপ সিডিএন (Aptoide)
     if (!downloaded) {
       const aptoideApp = await getAptoideDownload(appId);
       if (aptoideApp && aptoideApp.url) {
         const candidatePath = path.join(os.tmpdir(), `${appId}_${Date.now()}.apk`);
         try {
-          const writer = fs.createWriteStream(candidatePath, { highWaterMark: 2 * 1024 * 1024 });
           const response = await axios({
             method: 'GET',
             url: aptoideApp.url,
             responseType: 'stream',
             headers: { 'User-Agent': 'Mozilla/5.0' },
-            timeout: 35000,
+            timeout: 15000,
             httpsAgent: fastAgent
           });
 
-          response.data.pipe(writer);
-          await new Promise((resolve, reject) => {
-            writer.on('finish', resolve);
-            writer.on('error', reject);
-          });
+          const writer = fs.createWriteStream(candidatePath);
+          await pipeline(response.data, writer);
 
           if (fs.existsSync(candidatePath) && fs.statSync(candidatePath).size > 1024 * 1024) {
             tempFilePath = candidatePath;
@@ -208,7 +210,7 @@ async function executeApkDownload(client, chatId, appId) {
             if (aptoideApp.version) appVersion = aptoideApp.version;
           }
         } catch (e) {
-          if (fs.existsSync(candidatePath)) fs.unlinkSync(candidatePath);
+          try { if (fs.existsSync(candidatePath)) fs.unlinkSync(candidatePath); } catch (err) {}
         }
       }
     }
@@ -222,7 +224,6 @@ async function executeApkDownload(client, chatId, appId) {
       return;
     }
 
-    // ব্যাকগ্রাউন্ডের মেটাডাটা কাজ শেষ করা
     await metadataTask;
 
     const fileSizeMB = (fs.statSync(tempFilePath).size / (1024 * 1024)).toFixed(2);
@@ -238,8 +239,8 @@ async function executeApkDownload(client, chatId, appId) {
 ✅ <b>১-ক্লিক ইনস্টলেবল APK (All Devices Compatible)</b>
 ━━━━━━━━━━━━━━━━━━━━━━`;
 
-    // ⚡ সর্বোচ্চ ১২-থ্রেড রকেট আপলোড
-    await client.sendFile(chatId, {
+    // ⚡ টেলিগ্রামে পাঠানো
+    const sentMsg = await client.sendFile(chatId, {
       file: tempFilePath,
       caption: caption,
       parseMode: 'html',
@@ -248,8 +249,16 @@ async function executeApkDownload(client, chatId, appId) {
       attributes: [
         new Api.DocumentAttributeFilename({ fileName: cleanFileName })
       ],
-      workers: 12
+      workers: 6
     });
+
+    // ⚡ ফাস্ট ডেলিভারির জন্য ক্যাশ সেভ করা
+    if (sentMsg && sentMsg.media) {
+      apkCache.set(appId, {
+        fileId: sentMsg.media,
+        caption: caption
+      });
+    }
 
     if (statusMsg) await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
 
@@ -268,11 +277,10 @@ async function executeApkDownload(client, chatId, appId) {
   }
 }
 
-// ৪. মেইন হ্যান্ডলার
+// মেইন হ্যান্ডলার
 async function handlePlayStoreDownload(client, chatId, inputQuery) {
   const cleanInput = inputQuery.trim();
 
-  // যদি সরাসরি লিংক হয় (১ মিলিসেকেন্ডেও সময় নষ্ট হবে না)
   const linkMatch = cleanInput.match(/id=([a-zA-Z0-9._]+)/);
   if (linkMatch) {
     return await executeApkDownload(client, chatId, linkMatch[1]);
@@ -281,7 +289,6 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
     return await executeApkDownload(client, chatId, cleanInput);
   }
 
-  // নাম দিয়ে সার্চ
   const found = await searchPlayStoreFast(cleanInput);
 
   if (!found || !found.appId) {
@@ -295,4 +302,10 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
   return await executeApkDownload(client, chatId, found.appId);
 }
 
-module.exports = { handlePlayStoreDownload, executeApkDownload };
+async function handlePhotoSearch(client, message) {
+  await message.reply({ 
+    message: '💡 <b>অনুগ্রহ করে অ্যাপের নাম (বাংলা বা ইংরেজি) অথবা প্লে স্টোরের লিংক লিখে পাঠান।</b>' 
+  });
+}
+
+module.exports = { handlePlayStoreDownload, executeApkDownload, handlePhotoSearch };
