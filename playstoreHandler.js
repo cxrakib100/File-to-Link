@@ -5,8 +5,10 @@ const axios = require('axios');
 const AdmZip = require('adm-zip');
 const { Api } = require('telegram');
 
-// ১. গুগল প্লে স্ক্র্যাপার লোডার
+// আপনার জেমিনি এআই কি সরাসরি যুক্ত করা হয়েছে
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 let gplay = null;
+
 try {
   const gp = require('google-play-scraper');
   gplay = gp.search ? gp : (gp.default || gp);
@@ -14,7 +16,7 @@ try {
   gplay = null;
 }
 
-// ২. বাংলা ও ইংরেজি স্মার্ট ফাজি সার্চ
+// বাংলা ও ইংরেজি ফাজি/স্মার্ট সার্চ
 async function searchPlayStoreSmart(query) {
   let list = [];
   if (gplay && typeof gplay.search === 'function') {
@@ -23,7 +25,6 @@ async function searchPlayStoreSmart(query) {
     } catch (e) {}
   }
 
-  // স্ক্র্যাপার মিস করলে প্লে স্টোর ওয়েব থেকে সরাসরি স্ক্র্যাপ
   if (!list || list.length === 0) {
     try {
       const res = await axios.get(`https://play.google.com/store/search?q=${encodeURIComponent(query)}&c=apps&hl=bn`, {
@@ -44,15 +45,14 @@ async function searchPlayStoreSmart(query) {
   return list;
 }
 
-// ৩. ছবির লোগো থেকে অ্যাপ চেনার এআই ইঞ্জিন (Gemini AI Vision API)
+// জেমিনি এআই দিয়ে ছবি ও লোগো চেনার ফাংশন
 async function identifyAppFromPhoto(buffer) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
+  if (!GEMINI_API_KEY) return null;
 
   try {
     const base64Data = buffer.toString('base64');
     const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
       {
         contents: [
           {
@@ -64,13 +64,13 @@ async function identifyAppFromPhoto(buffer) {
                 }
               },
               {
-                text: "Identify the Android app shown in this image or logo. Reply ONLY with the exact app title or Google Play package name (e.g. 'Nagad' or 'com.whatsapp'). If it's an old logo of an app, identify the current name of that app."
+                text: "Analyze this image. If it contains an Android app logo, icon, or screenshot, tell me the exact name of the app or its Google Play package id. Output ONLY the app name or package id, nothing else."
               }
             ]
           }
         ]
       },
-      { headers: { 'Content-Type': 'application/json' }, timeout: 15000 }
+      { headers: { 'Content-Type': 'application/json' }, timeout: 20000 }
     );
 
     const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -80,7 +80,7 @@ async function identifyAppFromPhoto(buffer) {
   }
 }
 
-// ৪. কোর ডাউনলোড ইঞ্জিন (সব ধরনের ডিভাইস কম্প্যাটিবিলিটি সহ)
+// কোর ডাউনলোডার ইঞ্জিন (ক্যাশ-ফ্রি এবং ১-ক্লিক APK কনভার্টার)
 async function executeApkDownload(client, chatId, appId) {
   let statusMsg = null;
   let tempFilePath = null;
@@ -117,7 +117,6 @@ async function executeApkDownload(client, chatId, appId) {
       parseMode: 'html'
     });
 
-    // গ্লোবাল সিডিএন ক্যাশ-ফ্রি লিংক
     const timestamp = Date.now();
     const downloadConfigs = [
       { url: `https://d.apkpure.net/b/APK/${appId}?version=latest&t=${timestamp}`, isXapk: false },
@@ -206,7 +205,6 @@ async function executeApkDownload(client, chatId, appId) {
       parseMode: 'html'
     });
 
-    // আপনার চাহিদা মতো একদম এক লাইনের তথ্য
     const caption = 
 `📱 <b>${appTitle}</b>
 ━━━━━━━━━━━━━━━━━━━━━━
@@ -246,11 +244,10 @@ async function executeApkDownload(client, chatId, appId) {
   }
 }
 
-// ৫. স্মার্ট সার্চ ও মাল্টিপল অ্যাপ ডিসপ্লে
+// সার্চ ও মাল্টিপল অ্যাপ ডিসপ্লে
 async function handlePlayStoreDownload(client, chatId, inputQuery) {
   const cleanInput = inputQuery.trim();
 
-  // যদি সরাসরি লিংক হয়
   const linkMatch = cleanInput.match(/id=([a-zA-Z0-9._]+)/);
   if (linkMatch) {
     return await executeApkDownload(client, chatId, linkMatch[1]);
@@ -275,13 +272,11 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
     return;
   }
 
-  // যদি ১টিই অ্যাপ থাকে, সরাসরি ডাউনলোড শুরু
   if (apps.length === 1) {
     await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
     return await executeApkDownload(client, chatId, apps[0].appId);
   }
 
-  // একাধিক অ্যাপ থাকলে বাটন তালিকা তৈরি
   let listText = `🔍 <b>"${cleanInput}" সম্পর্কিত পাওয়া অ্যাপসমূহ:</b>\n`;
   listText += `━━━━━━━━━━━━━━━━━━━━━━\n`;
 
@@ -308,7 +303,7 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
   });
 }
 
-// ৬. ফটো লোগো সার্চ
+// ফটো সার্চ
 async function handlePhotoSearch(client, message) {
   const chatId = message.chatId;
   const status = await client.sendMessage(chatId, {
@@ -323,7 +318,7 @@ async function handlePhotoSearch(client, message) {
     if (!detectedName) {
       await client.editMessage(chatId, {
         message: status.id,
-        text: '⚠️ <b>ছবি থেকে কোনো অ্যাপ সনাক্ত করা যায়নি। অনুগ্রহ করে অ্যাপের নামটি টাইপ করুন।</b>\n<i>(ছবি দিয়ে এআই স্ক্যানের জন্য Render-এ GEMINI_API_KEY যুক্ত থাকতে হবে)</i>',
+        text: '⚠️ <b>ছবি থেকে কোনো অ্যাপ সনাক্ত করা যায়নি। অনুগ্রহ করে অ্যাপের নামটি টাইপ করুন।</b>',
         parseMode: 'html'
       });
       return;
@@ -331,7 +326,7 @@ async function handlePhotoSearch(client, message) {
 
     await client.editMessage(chatId, {
       message: status.id,
-      text: `🎯 <b>লোগো সনাক্ত হয়েছে:</b> <i>"${detectedName}"</i>\n⏳ প্লে স্টোর থেকে অ্যাপ নিয়ে আসা হচ্ছে...`,
+      text: `🎯 <b>লোগো সনাক্ত হয়েছে:</b> <i>"${detectedName}"</i>\n⏳ প্লে স্টোর থেকে অ্যাপ সংগ্রহ করা হচ্ছে...`,
       parseMode: 'html'
     });
 
