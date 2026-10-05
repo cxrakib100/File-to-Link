@@ -9,7 +9,7 @@ const { isUserJoined, sendJoinPrompt } = require('./forceSub');
 const { processFileUpload, setupDownloadRoute } = require('./fileHandler');
 const { handleTikTokDownload } = require('./tiktokHandler');
 const { handleFacebookDownload } = require('./facebookHandler');
-const { handlePlayStoreDownload } = require('./playstoreHandler'); // ⚡ নতুন প্লে স্টোর হ্যান্ডলার
+const { handlePlayStoreDownload, executeApkDownload, handlePhotoSearch } = require('./playstoreHandler');
 
 const API_ID = Number(process.env.API_ID);
 const API_HASH = process.env.API_HASH;
@@ -57,9 +57,8 @@ function sendFastTelegramRequest(endpoint, payload) {
   });
 }
 
-// ⚡ সুপারফাস্ট মেম্বারশিপ ক্যাশ (বাটনে ক্লিক করলে যাতে কোনো ল্যাগ না হয়)
 const subCache = new Map();
-const SUB_CACHE_TTL = 30 * 1000; // ৩০ সেকেন্ড স্মার্ট ক্যাশ (বাটন ক্লিকে ০ মিলি-সেকেন্ড স্পিড দেবে)
+const SUB_CACHE_TTL = 30 * 1000;
 
 async function checkSubWithSpeed(userId) {
   if (!userId) return false;
@@ -128,10 +127,10 @@ const FACEBOOK_SERVICE_TEXT =
 const PLAYSTORE_SERVICE_TEXT = 
 `📲 𝐏𝐥𝐚𝐲 𝐒𝐭𝐨𝐫𝐞 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐞𝐫
 ━━━━━━━━━━━━━━━━━━━━━━
-📥 Play Store অ্যাপের নাম বা লিংক পাঠান।
+📥 Play Store অ্যাপের নাম, লিংক বা লোগোর ছবি পাঠান।
 
 ⚡ 𝐋𝐚𝐭𝐞𝐬𝐭 𝐔𝐩𝐝𝐚𝐭𝐞 𝐀𝐏𝐊
-📦 সরাসরি অফিসিয়াল লেটেস্ট ভার্সন ফাইল পাবেন।
+📦 সরাসরি ১-ক্লিক ইনস্টলেবল লেটেস্ট ভার্সন।
 
  🏠 𝐌𝐚𝐢𝐧 𝐌𝐞𝐧𝐮-তে ফিরতে
 '🔙 𝐁𝐚𝐜𝐤 বাটন চাপুন।
@@ -161,7 +160,6 @@ function cancelAutoBackTimer(userId) {
   }
 }
 
-// 🎨 মেনু কিবোর্ডে প্লে স্টোর বাটন অন্তর্ভুক্ত
 async function sendMainMenu(chatId, text) {
   try {
     const cleanId = String(chatId).replace(/[^0-9-]/g, '');
@@ -172,15 +170,15 @@ async function sendMainMenu(chatId, text) {
       reply_markup: {
         keyboard: [
           [
-            { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "success" },   // 🟢 গ্রিন
-            { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }   // 🔵 ব্লু
+            { text: "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤", style: "success" },
+            { text: "𝐓𝐢𝐤𝐭𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }
           ],
           [
-            { text: "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" }, // 🔵 ব্লু
-            { text: "📲 𝐏𝐥𝐚𝐲 𝐒𝐭𝐨𝐫𝐞", style: "success" }    // 🟢 প্লে স্টোর বাটন
+            { text: "𝐅𝐚𝐜𝐞𝐛𝐨𝐨𝐤 𝐕𝐢𝐝𝐞𝐨", style: "primary" },
+            { text: "📲 𝐏𝐥𝐚𝐲 𝐒𝐭𝐨𝐫𝐞", style: "success" }
           ],
           [
-            { text: "𝐒𝐮𝐩𝐩𝐨𝐫𝐭", style: "danger" }          // 🔴 লাল
+            { text: "𝐒𝐮𝐩𝐩𝐨𝐫𝐭", style: "danger" }
           ]
         ],
         resize_keyboard: true,
@@ -222,6 +220,7 @@ async function hideKeyboardAndLock(chatId) {
   } catch (e) {}
 }
 
+// বাটন ক্লিক ইভেন্ট হ্যান্ডলার
 client.addEventHandler(async (update) => {
   if (update.className === 'UpdateBotCallbackQuery') {
     const data = update.data ? update.data.toString() : '';
@@ -257,15 +256,33 @@ client.addEventHandler(async (update) => {
         await client.invoke(
           new Api.messages.SetBotCallbackAnswer({
             queryId: update.queryId,
-            message: '⚠️ আপনি এখনো চ্যানেলে জয়েন করেননি! দয়া করে আগে চ্যানেলে জয়েন করে আবার চাপুন।',
+            message: '⚠️ আপনি এখনো চ্যানেলে জয়েন করেননি!',
             alert: true,
           })
         );
       }
+    } else if (data.startsWith('dl_')) {
+      // ⚡ মাল্টিপল প্লে স্টোর অ্যাপ সিলেকশন বাটন
+      const targetPackage = data.replace('dl_', '');
+      const senderId = update.userId;
+
+      try {
+        await client.invoke(
+          new Api.messages.SetBotCallbackAnswer({
+            queryId: update.queryId,
+            message: '⏳ অ্যাপ ডাউনলোড শুরু হচ্ছে...',
+            alert: false,
+          })
+        );
+        await client.deleteMessages(senderId, [update.msgId], { revoke: true });
+      } catch (e) {}
+
+      await executeApkDownload(client, senderId, targetPackage);
     }
   }
 });
 
+// মেসেজ ইভেন্ট হ্যান্ডলার
 client.addEventHandler(async (event) => {
   const message = event.message;
   if (!message) return;
@@ -285,8 +302,16 @@ client.addEventHandler(async (event) => {
 
   const currentMode = userModes.get(String(senderId)) || 'main';
 
+  // ফটো অথবা ফাইল হ্যান্ডলার
   const hasRealFile = message.media && (message.media.document || message.media.photo);
   if (hasRealFile) {
+    // 📷 প্লে স্টোর মোডে অ্যাপের ছবি বা স্ক্রিনশট আসলে AI স্ক্যান হবে
+    if (currentMode === 'playstore' && message.media.photo) {
+      startAutoBackTimer(chatId, senderId);
+      await handlePhotoSearch(client, message);
+      return;
+    }
+
     if (currentMode === 'tiktok' || currentMode === 'facebook' || currentMode === 'playstore') {
       await message.reply({ message: '⚠️ আপনি অন্য মোডে আছেন! ফাইল আপলোড করতে নিচে "🔙 𝐁𝐚𝐜𝐤" বাটনে চাপ দিয়ে "𝐅𝐢𝐥𝐞 𝐓𝐨 𝐋𝐢𝐧𝐤" সিলেক্ট করুন।' });
       return;
@@ -303,7 +328,6 @@ client.addEventHandler(async (event) => {
 
   const text = (message.text || '').trim();
 
-  // ⚡ সুপার ইনস্ট্যান্ট বাটন রেসপন্স
   if (text.startsWith('/start')) {
     userModes.set(String(senderId), 'main');
     cancelAutoBackTimer(senderId);
@@ -332,7 +356,6 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // ⚡ প্লে স্টোর বাটন কমান্ড
   if (text.includes('Play Store') || text.includes('𝐏𝐥𝐚𝐲 𝐒𝐭𝐨𝐫𝐞') || text === '/playstore' || text === '/apk') {
     userModes.set(String(senderId), 'playstore');
     startAutoBackTimer(chatId, senderId);
@@ -372,7 +395,7 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // প্লে স্টোর প্রসেসিং
+  // প্লে স্টোর টেক্সট বা লিংক প্রসেসিং
   const isPlayStoreLink = /(?:play\.google\.com\/store\/apps\/details)/i.test(text);
   if (isPlayStoreLink || currentMode === 'playstore') {
     if (isPlayStoreLink && currentMode !== 'playstore' && currentMode !== 'main') {
@@ -425,11 +448,11 @@ client.addEventHandler(async (event) => {
   }
 
   if (currentMode === 'tiktok') {
-    await message.reply({ message: '⚠️ অনুগ্রহ করে একটি সঠিক টিকটক ভিডিওর লিংক পাঠান (যেমন: https://vt.tiktok.com/...)' });
+    await message.reply({ message: '⚠️ অনুগ্রহ করে একটি সঠিক টিকটক ভিডিওর লিংক পাঠান।' });
   } else if (currentMode === 'facebook') {
-    await message.reply({ message: '⚠️ অনুগ্রহ করে একটি সঠিক Facebook ভিডিওর লিংক পাঠান (যেমন: https://www.facebook.com/... বা https://fb.watch/...)' });
+    await message.reply({ message: '⚠️ অনুগ্রহ করে একটি সঠিক Facebook ভিডিওর লিংক পাঠান।' });
   } else if (currentMode === 'playstore') {
-    await message.reply({ message: '⚠️ অনুগ্রহ করে প্লে স্টোর অ্যাপের নাম অথবা সঠিক লিংক পাঠান।' });
+    await message.reply({ message: '⚠️ অনুগ্রহ করে অ্যাপের নাম, প্লে স্টোর লিংক অথবা লোগোর ছবি পাঠান।' });
   } else if (currentMode === 'file') {
     await message.reply({ message: '⚠️ আপনি "ফাইল টু লিংক" মোডে আছেন! অনুগ্রহ করে যেকোনো ফাইল, ভিডিও, APK বা ডকুমেন্ট সেন্ড করুন।' });
   } else {
@@ -442,7 +465,6 @@ setupDownloadRoute(app, client);
 app.get('/', (req, res) => res.send('Multi-Function Bot Server is Live 24/7!'));
 app.get('/ping', (req, res) => res.status(200).send('PONG_ALIVE'));
 
-// 🚀 টেলিগ্রাম সংযোগ সক্রিয় রাখার হার্টবিট
 setInterval(async () => {
   try {
     if (client && client.connected) {
@@ -453,7 +475,6 @@ setInterval(async () => {
   } catch (e) {}
 }, 20 * 1000);
 
-// 🚀 ২৪/৭ জেগে থাকার সেলফ-পিং লুপ
 setInterval(() => {
   if (BASE_URL) {
     fetch(`${BASE_URL}/ping`).catch(() => {});
