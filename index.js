@@ -17,10 +17,12 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const BASE_URL = (process.env.BASE_URL || '').replace(/\/$/, '');
 const PORT = process.env.PORT || 3000;
 
+// ⚡ আনলিমিটেড রিকানেকশন (কখনো ডিসকানেক্ট হবে না)
 const client = new TelegramClient(new StringSession(''), API_ID, API_HASH, { 
-  connectionRetries: 10,
+  connectionRetries: Infinity,
   autoReconnect: true,
-  useWSS: false
+  useWSS: false,
+  timeout: 30000
 });
 
 const app = express();
@@ -36,7 +38,6 @@ const httpAgent = new https.Agent({
   maxFreeSockets: 10
 });
 
-// ⚡ সুপারফাস্ট নো-হ্যাং রিকোয়েস্ট ইঞ্জিন (৫ সেকেন্ডের টাইমআউট)
 function sendFastTelegramRequest(endpoint, payload) {
   return new Promise((resolve) => {
     const data = JSON.stringify(payload);
@@ -47,7 +48,7 @@ function sendFastTelegramRequest(endpoint, payload) {
         'Content-Length': Buffer.byteLength(data)
       },
       agent: httpAgent,
-      timeout: 6000
+      timeout: 5000
     }, (res) => {
       res.resume();
       resolve(true);
@@ -278,7 +279,7 @@ client.addEventHandler(async (event) => {
 
   const text = (message.text || '').trim();
 
-  // ⚡ কমান্ড ও বাটন সবসময় সবার আগে রেসপন্স করবে
+  // কমান্ড সবসময় সরাসরি কাজ করবে
   if (text.startsWith('/start')) {
     userModes.set(String(senderId), 'main');
     cancelAutoBackTimer(senderId);
@@ -374,7 +375,7 @@ client.addEventHandler(async (event) => {
     return;
   }
 
-  // প্লে স্টোর ডাউনলোড হ্যান্ডলার
+  // প্লে স্টোর ডাউনলোড
   const isPlayStoreLink = /(?:play\.google\.com\/store\/apps\/details)/i.test(text);
   if (isPlayStoreLink || currentMode === 'playstore') {
     if (isPlayStoreLink && currentMode !== 'playstore' && currentMode !== 'main') {
@@ -444,23 +445,15 @@ setupDownloadRoute(app, client);
 app.get('/', (req, res) => res.send('Multi-Function Bot Server is Live 24/7!'));
 app.get('/ping', (req, res) => res.status(200).send('PONG_ALIVE'));
 
-// 🚀 টেলিগ্রাম সক্রিয় সংযোগ রাখার হার্টবিট
+// 🚀 টেলিগ্রাম পার্মানেন্ট কানেকশন গার্ড (কখনো কানেকশন ড্রপ হলে সাথে সাথে রিকানেক্ট করবে)
 setInterval(async () => {
   try {
-    if (client && client.connected) {
-      await client.invoke(new Api.help.GetConfig());
-    } else if (client && !client.connected) {
+    if (!client.connected) {
+      console.log('Reconnecting to Telegram...');
       await client.connect();
     }
   } catch (e) {}
-}, 20 * 1000);
-
-// 🚀 ২৪/৭ জেগে থাকার সেলফ-পিং লুপ
-setInterval(() => {
-  if (BASE_URL) {
-    fetch(`${BASE_URL}/ping`).catch(() => {});
-  }
-}, 3 * 60 * 1000);
+}, 5000);
 
 app.listen(PORT, async () => {
   console.log(`Server listening on port ${PORT}`);
