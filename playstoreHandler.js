@@ -16,21 +16,20 @@ try {
   gplay = null;
 }
 
-// ১. গ্লোবাল সার্চ (কান্ট্রি লক বাইপাস করার জন্য US Region এ সার্চ হবে)
+// ১. বাংলা ও ইংরেজি স্মার্ট গ্লোবাল সার্চ (কান্ট্রি লক বাইপাস)
 async function searchPlayStoreGlobal(query) {
-  // প্লে স্টোর লাইব্রেরি দিয়ে গ্লোবাল ইউএসএ সার্চ
   if (gplay && typeof gplay.search === 'function') {
     try {
-      const results = await gplay.search({ term: query, num: 2, country: 'us', lang: 'en' });
+      const results = await gplay.search({ term: query, num: 2 });
       if (results && results.length > 0) {
         return { appId: results[0].appId, title: results[0].title };
       }
     } catch (e) {}
   }
 
-  // সরাসরি গুগল প্লে গ্লোবাল ওয়েব ক্রলার
+  // সরাসরি প্লে স্টোর ওয়েব স্ক্র্যাপার
   try {
-    const searchUrl = `https://play.google.com/store/search?q=${encodeURIComponent(query)}&c=apps&gl=us&hl=en`;
+    const searchUrl = `https://play.google.com/store/search?q=${encodeURIComponent(query)}&c=apps`;
     const res = await axios.get(searchUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
       timeout: 10000
@@ -44,7 +43,7 @@ async function searchPlayStoreGlobal(query) {
   return null;
 }
 
-// ২. Aptoide ব্যাকআপ সিডিএন ইঞ্জিন (কান্ট্রি রেস্ট্রিক্টেড অ্যাপের জন্য)
+// ২. Aptoide ব্যাকআপ সিডিএন
 async function getAptoideDownload(packageId) {
   try {
     const res = await axios.get(`https://ws75.aptoide.com/api/7/apps/search?query=${packageId}&limit=1`, {
@@ -66,7 +65,7 @@ async function getAptoideDownload(packageId) {
   return null;
 }
 
-// ৩. সুপার এআই ভিশন (ছবি বা স্ক্রিনশট থেকে সরাসরি অ্যাপের নাম বের করা)
+// ৩. সুপার এআই ভিশন (নতুন AQ. কি প্রোটোকল ও ডুয়াল মেথড ব্যাকআপ)
 async function identifyAppFromPhoto(buffer) {
   if (!GEMINI_API_KEY) return null;
 
@@ -77,32 +76,40 @@ async function identifyAppFromPhoto(buffer) {
     mimeType = 'image/webp';
   }
 
-  const prompt = `This image is an Android app logo, icon, or a full Google Play Store screenshot.
-Identify the official Android App Name or Package ID.
-Output ONLY the clean single App Name (e.g. 'Nagad', 'Avalanche Card', 'CapCut'). Do not add any extra words.`;
+  const base64Data = buffer.toString('base64');
+  const payload = {
+    contents: [
+      {
+        parts: [
+          {
+            inlineData: {
+              mimeType: mimeType,
+              data: base64Data
+            }
+          },
+          {
+            text: "This image is an Android app logo, icon, or Google Play Store screenshot. Name the official app (e.g. Nagad, WhatsApp, Facebook). Output strictly ONLY the clean app name or Google Play package ID, with no punctuation or extra words."
+          }
+        ]
+      }
+    ]
+  };
 
   const models = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash'];
 
   for (const model of models) {
+    // মেথড ১: x-goog-api-key হেডার + URL প্যারামিটার
     try {
       const response = await axios.post(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
+        payload,
         {
-          contents: [
-            {
-              parts: [
-                {
-                  inline_data: {
-                    mime_type: mimeType,
-                    data: buffer.toString('base64')
-                  }
-                },
-                { text: prompt }
-              ]
-            }
-          ]
-        },
-        { headers: { 'Content-Type': 'application/json' }, timeout: 20000 }
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': GEMINI_API_KEY
+          },
+          timeout: 20000
+        }
       );
 
       const raw = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -110,12 +117,34 @@ Output ONLY the clean single App Name (e.g. 'Nagad', 'Avalanche Card', 'CapCut')
         const clean = raw.split('\n')[0].replace(/[`*"'#]/g, '').trim();
         if (clean.length > 1) return clean;
       }
-    } catch (err) {}
+    } catch (err1) {
+      // মেথড ২: Authorization Bearer হেডার (নতুন AQ. প্রোটোকল সাপোর্ট)
+      try {
+        const response2 = await axios.post(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+          payload,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${GEMINI_API_KEY}`
+            },
+            timeout: 20000
+          }
+        );
+
+        const raw2 = response2.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (raw2) {
+          const clean2 = raw2.split('\n')[0].replace(/[`*"'#]/g, '').trim();
+          if (clean2.length > 1) return clean2;
+        }
+      } catch (err2) {}
+    }
   }
+
   return null;
 }
 
-// ৪. কোর ডাউনলোডার ইঞ্জিন (কোনো বাটন ছাড়া সরাসরি ফাইল ডাউনলোড)
+// ৪. আল্ট্রা-ফাস্ট কোর ডাউনলোডার (১৬-থ্রেড প্যারালাল আপলোড ও নো-হ্যাং সিস্টেম)
 async function executeApkDownload(client, chatId, appId) {
   let statusMsg = null;
   let tempFilePath = null;
@@ -132,7 +161,7 @@ async function executeApkDownload(client, chatId, appId) {
 
     if (gplay && typeof gplay.app === 'function') {
       try {
-        const details = await gplay.app({ appId, country: 'us', lang: 'en' });
+        const details = await gplay.app({ appId });
         appTitle = details.title || appTitle;
         if (details.version && details.version !== 'Varies with device') {
           appVersion = details.version;
@@ -153,8 +182,6 @@ async function executeApkDownload(client, chatId, appId) {
     });
 
     const timestamp = Date.now();
-    
-    // মাল্টি-সিডিএন লিংক (APKPure Global + WinUDF)
     const downloadConfigs = [
       { url: `https://d.apkpure.net/b/APK/${appId}?version=latest&t=${timestamp}`, isXapk: false },
       { url: `https://d.apkpure.com/b/APK/${appId}?version=latest&t=${timestamp}`, isXapk: false },
@@ -164,7 +191,7 @@ async function executeApkDownload(client, chatId, appId) {
 
     let downloaded = false;
 
-    // ১. প্রথম চেষ্টা: APKPure গ্লোবাল সিডিএন
+    // ১. প্রথম চেষ্টা: APKPure সিডিএন
     for (const item of downloadConfigs) {
       const candidatePath = path.join(os.tmpdir(), `${appId}_${timestamp}.${item.isXapk ? 'xapk' : 'apk'}`);
       try {
@@ -225,7 +252,7 @@ async function executeApkDownload(client, chatId, appId) {
       }
     }
 
-    // ২. দ্বিতীয় চেষ্টা: যদি কান্ট্রি-লকের কারণে APKPure ফেইল করে, তবে Aptoide সিডিএন থেকে আনা
+    // ২. দ্বিতীয় চেষ্টা: Aptoide গ্লোবাল ব্যাকআপ
     if (!downloaded) {
       const aptoideApp = await getAptoideDownload(appId);
       if (aptoideApp && aptoideApp.url) {
@@ -260,7 +287,7 @@ async function executeApkDownload(client, chatId, appId) {
     if (!downloaded || !fs.existsSync(tempFilePath)) {
       if (statusMsg) await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
       await client.sendMessage(chatId, {
-        message: '⚠️ <b>ডাউনলোড ব্যর্থ হয়েছে!</b> অ্যাপটি পেইড অথবা গুগল প্লে সার্ভারে বর্তমানে লক করা রয়েছে।',
+        message: '⚠️ <b>ডাউনলোড ব্যর্থ হয়েছে!</b> অ্যাপটি পেইড অথবা প্লে স্টোর থেকে রিমুভ করা হয়েছে।',
         parseMode: 'html'
       });
       return;
@@ -285,7 +312,7 @@ async function executeApkDownload(client, chatId, appId) {
 ✅ <b>১-ক্লিক ইনস্টলেবল APK (All Devices Compatible)</b>
 ━━━━━━━━━━━━━━━━━━━━━━`;
 
-    // টেলিগ্রামে ১৬-থ্রেডে সুপারফাস্ট আপলোড
+    // ১৬-থ্রেডে সুপারফাস্ট টেলিগ্রাম আপলোড
     await client.sendFile(chatId, {
       file: tempFilePath,
       caption: caption,
@@ -319,7 +346,7 @@ async function executeApkDownload(client, chatId, appId) {
 async function handlePlayStoreDownload(client, chatId, inputQuery) {
   const cleanInput = inputQuery.trim();
 
-  // যদি সরাসরি লিংক হয়
+  // সরাসরি লিংক আসলে সরাসরি ডাউনলোড
   const linkMatch = cleanInput.match(/id=([a-zA-Z0-9._]+)/);
   if (linkMatch) {
     return await executeApkDownload(client, chatId, linkMatch[1]);
@@ -329,17 +356,16 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
   }
 
   const statusMsg = await client.sendMessage(chatId, {
-    message: '🔍 <b>গ্লোবাল প্লে স্টোরে অনুসন্ধান করা হচ্ছে...</b>',
+    message: '🔍 <b>প্লে স্টোরে অনুসন্ধান করা হচ্ছে...</b>',
     parseMode: 'html'
   });
 
-  // গ্লোবাল সার্চ করে সরাসরি ১ নম্বর অ্যাপটি নেওয়া
   const found = await searchPlayStoreGlobal(cleanInput);
 
   if (!found || !found.appId) {
     await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
     await client.sendMessage(chatId, {
-      message: '❌ <b>গ্লোবাল প্লে স্টোরেও এই নামের কোনো অ্যাপ খুঁজে পাওয়া যায়নি!</b>',
+      message: '❌ <b>প্লে স্টোরে এই নামের কোনো অ্যাপ খুঁজে পাওয়া যায়নি!</b>',
       parseMode: 'html'
     });
     return;
@@ -347,15 +373,15 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
 
   await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
   
-  // সরাসরি ডাউনলোড শুরু (কোনো সাজেশন বাটন আসবে না)
+  // সরাসরি ডাউনলোড শুরু (কোনো তালিকা বা বাটন ছাড়াই)
   return await executeApkDownload(client, chatId, found.appId);
 }
 
-// ৬. ফটো থেকে সরাসরি ডাউনলোড হ্যান্ডলার
+// ৬. ফটো/লোগো থেকে সরাসরি ডাউনলোড হ্যান্ডলার
 async function handlePhotoSearch(client, message) {
   const chatId = message.chatId;
   const status = await client.sendMessage(chatId, {
-    message: '🤖 <b>AI দ্বারা অ্যাপ সনাক্ত করা হচ্ছে...</b>',
+    message: '🤖 <b>AI দ্বারা অ্যাপ লোগো স্ক্যান করা হচ্ছে...</b>',
     parseMode: 'html'
   });
 
@@ -366,7 +392,7 @@ async function handlePhotoSearch(client, message) {
     if (!detectedName) {
       await client.editMessage(chatId, {
         message: status.id,
-        text: '⚠️ <b>ছবি থেকে কোনো অ্যাপ সনাক্ত করা যায়নি। অনুগ্রহ করে অ্যাপের নামটি টাইপ করুন।</b>',
+        text: '⚠️ <b>ছবি থেকে কোনো অ্যাপ সনাক্ত করা যায়নি। অনুগ্রহ করে অ্যাপের নামটি সরাসরি টাইপ করুন।</b>',
         parseMode: 'html'
       });
       return;
