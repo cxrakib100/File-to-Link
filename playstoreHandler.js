@@ -1,13 +1,46 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const https = require('https');
 const axios = require('axios');
-const gplay = require('google-play-scraper');
 
-/**
- * গুগল প্লে স্টোরের লেটেস্ট APK আল্ট্রা-ফাস্ট ডাউনলোড ও সেন্ড হ্যান্ডলার
- */
+// ১. গুগল প্লে স্ক্র্যাপার সেফ লোডার
+let gplay = null;
+try {
+  const gp = require('google-play-scraper');
+  gplay = gp.search ? gp : (gp.default || gp);
+} catch (e) {
+  gplay = null;
+}
+
+// অ্যাপ সার্চ করার বুলেটপ্রুফ ফাংশন (লাইব্রেরি ফেইল করলেও ব্যাকআপ সার্চ করবে)
+async function searchApp(term) {
+  if (gplay && typeof gplay.search === 'function') {
+    try {
+      const results = await gplay.search({ term, num: 1 });
+      if (results && results.length > 0) {
+        return { appId: results[0].appId, title: results[0].title };
+      }
+    } catch (e) {}
+  }
+
+  // সরাসরি প্লে স্টোর থেকে সার্চ রেজাল্ট বের করার বিকল্প সিস্টেম
+  try {
+    const searchUrl = `https://play.google.com/store/search?q=${encodeURIComponent(term)}&c=apps&hl=en`;
+    const res = await axios.get(searchUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+      },
+      timeout: 10000
+    });
+    const match = res.data.match(/\/store\/apps\/details\?id=([a-zA-Z0-9._]+)/);
+    if (match) {
+      return { appId: match[1], title: term };
+    }
+  } catch (err) {}
+
+  return null;
+}
+
 async function handlePlayStoreDownload(client, chatId, inputQuery) {
   let statusMsg = null;
   let tempFilePath = null;
@@ -20,7 +53,6 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
 
     let appId = '';
     let appTitle = '';
-    let appIcon = '';
     let appVersion = 'Latest';
 
     const cleanInput = inputQuery.trim();
@@ -33,60 +65,70 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
       appId = cleanInput;
     }
 
-    // ২. অ্যাপের তথ্য সংগ্রহ (প্লে স্টোর স্ক্র্যাপার)
-    if (appId) {
-      try {
-        const details = await gplay.app({ appId });
-        appTitle = details.title || appId;
-        appIcon = details.icon || '';
-        appVersion = details.version || 'Latest';
-      } catch (e) {
-        appTitle = appId;
-      }
-    } else {
-      // নাম দিয়ে সার্চ করা
-      const searchResults = await gplay.search({ term: cleanInput, num: 1 });
-      if (!searchResults || searchResults.length === 0) {
+    // ২. নাম বা লিংক প্রসেসিং
+    if (!appId) {
+      const found = await searchApp(cleanInput);
+      if (!found) {
         if (statusMsg) await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
         await client.sendMessage(chatId, {
-          message: '❌ <b>দুঃখিত! প্লে স্টোরে এই নামের কোনো অ্যাপ খুঁজে পাওয়া যায়নি।</b>',
+          message: '❌ <b>প্লে স্টোরে এই নামের কোনো অ্যাপ খুঁজে পাওয়া যায়নি!</b>',
           parseMode: 'html'
         });
         return;
       }
-      appId = searchResults[0].appId;
-      appTitle = searchResults[0].title;
-      appIcon = searchResults[0].icon || '';
-      appVersion = searchResults[0].version || 'Latest';
+      appId = found.appId;
+      appTitle = found.title;
+    } else {
+      appTitle = appId;
+    }
+
+    // অ্যাপ ডিটেইলস সংগ্রহ
+    if (gplay && typeof gplay.app === 'function') {
+      try {
+        const details = await gplay.app({ appId });
+        appTitle = details.title || appTitle;
+        appVersion = details.version || 'Latest';
+      } catch (e) {}
     }
 
     await client.editMessage(chatId, {
       message: statusMsg.id,
-      text: `📦 <b>অ্যাপ:</b> ${appTitle}\n🆔 <code>${appId}</code>\n⏳ <b>প্লে স্টোর থেকে লেটেস্ট APK ডাউনলোড হচ্ছে...</b>`,
+      text: `📦 <b>অ্যাপ:</b> ${appTitle}\n🆔 <code>${appId}</code>\n⏳ <b>প্লে স্টোর থেকে লেটেস্ট ফাইল ডাউনলোড হচ্ছে...</b>`,
       parseMode: 'html'
     });
 
-    // ৩. হাই-স্পিড অফিসিয়াল সিডিএন থেকে ফাইল স্ট্রিম করা
-    const downloadUrls = [
-      `https://d.apkpure.net/b/APK/${appId}?version=latest`,
-      `https://d.apkpure.com/b/APK/${appId}?version=latest`
+    // ৩. সাধারণ APK ও স্প্লিট XAPK উভয় ফরম্যাটের লিংক
+    const downloadConfigs = [
+      { url: `https://d.apkpure.net/b/XAPK/${appId}?version=latest`, ext: 'xapk' },
+      { url: `https://d.apkpure.net/b/APK/${appId}?version=latest`, ext: 'apk' },
+      { url: `https://d.apkpure.com/b/XAPK/${appId}?version=latest`, ext: 'xapk' },
+      { url: `https://d.apkpure.com/b/APK/${appId}?version=latest`, ext: 'apk' }
     ];
 
-    tempFilePath = path.join(os.tmpdir(), `${appId}_${Date.now()}.apk`);
     let downloaded = false;
+    let finalExt = 'apk';
 
-    for (const dlUrl of downloadUrls) {
+    for (const item of downloadConfigs) {
+      const candidatePath = path.join(os.tmpdir(), `${appId}_${Date.now()}.${item.ext}`);
       try {
-        const writer = fs.createWriteStream(tempFilePath);
+        const writer = fs.createWriteStream(candidatePath);
         const response = await axios({
           method: 'GET',
-          url: dlUrl,
+          url: item.url,
           responseType: 'stream',
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
           },
-          timeout: 45000
+          timeout: 60000,
+          maxRedirects: 10
         });
+
+        const contentType = response.headers['content-type'] || '';
+        if (contentType.includes('text/html')) {
+          writer.close();
+          if (fs.existsSync(candidatePath)) fs.unlinkSync(candidatePath);
+          continue;
+        }
 
         response.data.pipe(writer);
 
@@ -95,20 +137,24 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
           writer.on('error', reject);
         });
 
-        const stats = fs.statSync(tempFilePath);
-        if (stats.size > 1024 * 1024) { // ১ মেগাবাইটের বেশি সাইজ নিশ্চিত করা
+        const stats = fs.statSync(candidatePath);
+        if (stats.size > 1024 * 1024) { // ১ মেগাবাইটের বেশি ফাইল নিশ্চিত করা
+          tempFilePath = candidatePath;
+          finalExt = item.ext;
           downloaded = true;
           break;
+        } else {
+          if (fs.existsSync(candidatePath)) fs.unlinkSync(candidatePath);
         }
       } catch (err) {
-        if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+        if (fs.existsSync(candidatePath)) fs.unlinkSync(candidatePath);
       }
     }
 
     if (!downloaded || !fs.existsSync(tempFilePath)) {
       if (statusMsg) await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
       await client.sendMessage(chatId, {
-        message: '⚠️ <b>ডাউনলোড ব্যর্থ হয়েছে!</b> অ্যাপটি পেইড (Paid) অথবা স্প্লিট ফরম্যাটে থাকার কারণে নামানো সম্ভব হয়নি।',
+        message: '⚠️ <b>ডাউনলোড ব্যর্থ হয়েছে!</b> অ্যাপটি পেইড অথবা প্লে স্টোর থেকে রিমুভ করা হয়েছে।',
         parseMode: 'html'
       });
       return;
@@ -122,25 +168,27 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
       parseMode: 'html'
     });
 
-    // ৪. টেলিগ্রামে আল্ট্রা-ফাস্ট প্যারালাল আপলোড
+    const isXapk = finalExt === 'xapk';
     const caption = 
 `📱 <b>${appTitle}</b>
 ━━━━━━━━━━━━━━━━━━━━━━
 🆔 <b>প্যাকেজ:</b> <code>${appId}</code>
 📦 <b>ভার্সন:</b> ${appVersion}
 💾 <b>সাইজ:</b> ${fileSizeMB} MB
+📁 <b>ফরম্যাট:</b> ${isXapk ? 'XAPK (Split APK)' : 'APK'}
 ✅ <b>অফিসিয়াল লেটেস্ট ভার্সন</b>
+${isXapk ? '💡 <i>(টিপস: এটি স্প্লিট অ্যাপ, ফোনে ইনস্টল করতে "XAPK Installer" বা "SAI" অ্যাপ ব্যবহার করুন)</i>' : ''}
 ━━━━━━━━━━━━━━━━━━━━━━`;
 
+    // ৪. টেলিগ্রামে আল্ট্রা-ফাস্ট আপলোড
     await client.sendFile(chatId, {
       file: tempFilePath,
       caption: caption,
       parseMode: 'html',
       forceDocument: true,
-      workers: 4 // আল্ট্রা ফাস্ট মাল্টি-থ্রেডেড আপলোড
+      workers: 4
     });
 
-    // কাজ শেষে স্ট্যাটাস মেসেজ এবং টেম্প ফাইল ক্লিনআপ
     if (statusMsg) await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
 
   } catch (error) {
