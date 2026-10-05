@@ -13,9 +13,11 @@ try {
   gplay = null;
 }
 
-// ১. বাংলা ও ইংরেজি প্লে স্টোর সার্চ
-async function searchPlayStoreGlobal(query) {
+// ১. বাংলা ও ইংরেজি আল্ট্রা-ফাস্ট প্লে স্টোর সার্চ
+async function searchPlayStoreFast(query) {
   const cleanQ = query.trim();
+
+  // প্লে স্টোর লাইব্রেরি দিয়ে দ্রুত অনুসন্ধান
   if (gplay && typeof gplay.search === 'function') {
     try {
       const results = await gplay.search({ term: cleanQ, num: 2, country: 'bd', lang: 'bn' });
@@ -32,11 +34,12 @@ async function searchPlayStoreGlobal(query) {
     } catch (e) {}
   }
 
+  // লাইব্রেরি মিস করলে সরাসরি প্লে স্টোর ওয়েব স্ক্র্যাপ
   try {
     const searchUrl = `https://play.google.com/store/search?q=${encodeURIComponent(cleanQ)}&c=apps`;
     const res = await axios.get(searchUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-      timeout: 10000
+      timeout: 8000
     });
     const match = res.data.match(/\/store\/apps\/details\?id=([a-zA-Z0-9._]+)/);
     if (match) {
@@ -47,12 +50,12 @@ async function searchPlayStoreGlobal(query) {
   return null;
 }
 
-// ২. Aptoide ব্যাকআপ সিডিএন
+// ২. ব্যাকআপ সিডিএন ইঞ্জিন (Aptoide)
 async function getAptoideDownload(packageId) {
   try {
     const res = await axios.get(`https://ws75.aptoide.com/api/7/apps/search?query=${packageId}&limit=1`, {
       headers: { 'User-Agent': 'Mozilla/5.0' },
-      timeout: 10000
+      timeout: 8000
     });
     const list = res.data?.datalist?.list;
     if (list && list.length > 0) {
@@ -69,56 +72,7 @@ async function getAptoideDownload(packageId) {
   return null;
 }
 
-// ৩. বাংলা + ইংরেজি হাই-স্পিড অপটিক্যাল ভিশন (কোনো Google API Key লাগবে না)
-async function identifyAppFromPhoto(buffer) {
-  let mimeType = 'image/jpeg';
-  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
-    mimeType = 'image/png';
-  } else if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46) {
-    mimeType = 'image/webp';
-  }
-
-  const base64Data = buffer.toString('base64');
-  const dataUrl = `data:${mimeType};base64,${base64Data}`;
-
-  // বাংলা ও ইংরেজি উভয় ভাষায় স্ক্যান করার লুপ
-  const languages = ['ben', 'eng'];
-  const apiKeys = ['K88289874488957', 'helloworld'];
-
-  for (const lang of languages) {
-    for (const key of apiKeys) {
-      try {
-        const formParams = new URLSearchParams();
-        formParams.append('base64Image', dataUrl);
-        formParams.append('language', lang);
-        formParams.append('apikey', key);
-        formParams.append('OCREngine', '2'); // আধুনিক ওসিআর ইঞ্জিন
-
-        const ocrRes = await axios.post('https://api.ocr.space/parse/image', formParams, {
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          timeout: 15000
-        });
-
-        const parsedText = ocrRes.data?.ParsedResults?.[0]?.ParsedText || '';
-        
-        // টেক্সট থেকে অপ্রয়োজনীয় চিহ্ন বাদ দিয়ে মূল নাম নেওয়া
-        const lines = parsedText.split('\n').map(l => l.replace(/[^a-zA-Z0-9\u0980-\u09FF ]/g, '').trim()).filter(l => l.length >= 2);
-        
-        if (lines.length > 0) {
-          // প্রথম কার্যকর শব্দটি নেওয়া
-          const detected = lines[0];
-          if (detected && detected.length >= 2) {
-            return detected;
-          }
-        }
-      } catch (err) {}
-    }
-  }
-
-  return null;
-}
-
-// ৪. কোর ডাউনলোডার ইঞ্জিন (১৬-থ্রেড প্যারালাল আপলোড)
+// ৩. সুপার-ফাস্ট কোর ডাউনলোডার ইঞ্জিন (১-ক্লিক APK কনভার্সন সহ)
 async function executeApkDownload(client, chatId, appId) {
   let statusMsg = null;
   let tempFilePath = null;
@@ -165,6 +119,7 @@ async function executeApkDownload(client, chatId, appId) {
 
     let downloaded = false;
 
+    // ১. প্রথম চেষ্টা: APKPure সিডিএন
     for (const item of downloadConfigs) {
       const candidatePath = path.join(os.tmpdir(), `${appId}_${timestamp}.${item.isXapk ? 'xapk' : 'apk'}`);
       try {
@@ -195,6 +150,7 @@ async function executeApkDownload(client, chatId, appId) {
 
         const stats = fs.statSync(candidatePath);
         if (stats.size > 1024 * 1024) {
+          // XAPK হলে স্বয়ংক্রিয়ভাবে আনজিপ করে মূল .apk বের করা
           if (item.isXapk) {
             try {
               const zip = new AdmZip(candidatePath);
@@ -225,6 +181,7 @@ async function executeApkDownload(client, chatId, appId) {
       }
     }
 
+    // ২. দ্বিতীয় চেষ্টা: Aptoide ব্যাকআপ
     if (!downloaded) {
       const aptoideApp = await getAptoideDownload(appId);
       if (aptoideApp && aptoideApp.url) {
@@ -284,6 +241,7 @@ async function executeApkDownload(client, chatId, appId) {
 ✅ <b>১-ক্লিক ইনস্টলেবল APK (All Devices Compatible)</b>
 ━━━━━━━━━━━━━━━━━━━━━━`;
 
+    // ১৬-থ্রেডে সুপারফাস্ট টেলিগ্রাম আপলোড
     await client.sendFile(chatId, {
       file: tempFilePath,
       caption: caption,
@@ -313,10 +271,11 @@ async function executeApkDownload(client, chatId, appId) {
   }
 }
 
-// ৫. সরাসরি ডাউনলোড হ্যান্ডলার
+// ৪. মেইন প্লে স্টোর হ্যান্ডলার (সরাসরি ১-ক্লিকে রেজাল্ট)
 async function handlePlayStoreDownload(client, chatId, inputQuery) {
   const cleanInput = inputQuery.trim();
 
+  // সরাসরি লিংক আসলে লিংক থেকে সরাসরি প্যাকেজ আইডি নেওয়া
   const linkMatch = cleanInput.match(/id=([a-zA-Z0-9._]+)/);
   if (linkMatch) {
     return await executeApkDownload(client, chatId, linkMatch[1]);
@@ -330,7 +289,8 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
     parseMode: 'html'
   });
 
-  const found = await searchPlayStoreGlobal(cleanInput);
+  // নাম দিয়ে অনুসন্ধান (বাংলা অথবা ইংরেজি)
+  const found = await searchPlayStoreFast(cleanInput);
 
   if (!found || !found.appId) {
     await client.deleteMessages(chatId, [statusMsg.id], { revoke: true });
@@ -345,42 +305,4 @@ async function handlePlayStoreDownload(client, chatId, inputQuery) {
   return await executeApkDownload(client, chatId, found.appId);
 }
 
-// ৬. ফটো থেকে সরাসরি প্রসেসর
-async function handlePhotoSearch(client, message) {
-  const chatId = message.chatId;
-  const status = await client.sendMessage(chatId, {
-    message: '🤖 <b>ছবি স্ক্যান করা হচ্ছে...</b>',
-    parseMode: 'html'
-  });
-
-  try {
-    const buffer = await client.downloadMedia(message);
-    const detectedName = await identifyAppFromPhoto(buffer);
-
-    if (!detectedName) {
-      await client.editMessage(chatId, {
-        message: status.id,
-        text: '⚠️ <b>ছবি থেকে কোনো অ্যাপের নাম সনাক্ত করা যায়নি। অনুগ্রহ করে অ্যাপের নামটি টাইপ করে পাঠান।</b>',
-        parseMode: 'html'
-      });
-      return;
-    }
-
-    await client.editMessage(chatId, {
-      message: status.id,
-      text: `🎯 <b>সনাক্ত হয়েছে:</b> <i>"${detectedName}"</i>\n⏳ সরাসরি ডাউনলোড শুরু হচ্ছে...`,
-      parseMode: 'html'
-    });
-
-    await handlePlayStoreDownload(client, chatId, detectedName);
-
-  } catch (err) {
-    await client.editMessage(chatId, {
-      message: status.id,
-      text: `⚠️ <b>স্ক্যান করতে ব্যর্থ হয়েছে:</b> ${err.message}`,
-      parseMode: 'html'
-    });
-  }
-}
-
-module.exports = { handlePlayStoreDownload, executeApkDownload, handlePhotoSearch };
+module.exports = { handlePlayStoreDownload, executeApkDownload };
