@@ -17,7 +17,6 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const BASE_URL = (process.env.BASE_URL || '').replace(/\/$/, '');
 const PORT = process.env.PORT || 3000;
 
-// ⚡ আনলিমিটেড রিকানেকশন (কখনো ডিসকানেক্ট হবে না)
 const client = new TelegramClient(new StringSession(''), API_ID, API_HASH, { 
   connectionRetries: Infinity,
   autoReconnect: true,
@@ -33,9 +32,9 @@ const TWO_HOURS = 2 * 60 * 60 * 1000;
 
 const httpAgent = new https.Agent({ 
   keepAlive: true, 
-  keepAliveMsecs: 30000, 
+  keepAliveMsecs: 60000, 
   maxSockets: 50,
-  maxFreeSockets: 10
+  maxFreeSockets: 20
 });
 
 function sendFastTelegramRequest(endpoint, payload) {
@@ -61,8 +60,9 @@ function sendFastTelegramRequest(endpoint, payload) {
   });
 }
 
+// ⚡ সুপারফাস্ট ৫-মিনিটের মেম্বারশিপ ক্যাশ (বাটন হবে ০.০০১ সেকেন্ড দ্রুত)
 const subCache = new Map();
-const SUB_CACHE_TTL = 30 * 1000;
+const SUB_CACHE_TTL = 5 * 60 * 1000;
 
 async function checkSubWithSpeed(userId) {
   if (!userId) return false;
@@ -279,7 +279,7 @@ client.addEventHandler(async (event) => {
 
   const text = (message.text || '').trim();
 
-  // কমান্ড সবসময় সরাসরি কাজ করবে
+  // ⚡ কমান্ড ও বাটন সবার আগে ইনস্ট্যান্ট রেসপন্স করবে
   if (text.startsWith('/start')) {
     userModes.set(String(senderId), 'main');
     cancelAutoBackTimer(senderId);
@@ -445,11 +445,10 @@ setupDownloadRoute(app, client);
 app.get('/', (req, res) => res.send('Multi-Function Bot Server is Live 24/7!'));
 app.get('/ping', (req, res) => res.status(200).send('PONG_ALIVE'));
 
-// 🚀 টেলিগ্রাম পার্মানেন্ট কানেকশন গার্ড (কখনো কানেকশন ড্রপ হলে সাথে সাথে রিকানেক্ট করবে)
+// 🚀 টেলিগ্রাম সক্রিয় কানেকশন গার্ড
 setInterval(async () => {
   try {
     if (!client.connected) {
-      console.log('Reconnecting to Telegram...');
       await client.connect();
     }
   } catch (e) {}
